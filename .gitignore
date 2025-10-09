@@ -1,9 +1,37 @@
+# ✅ Fichiers sensibles / config
+.env
+*.env.*                    # pour .env.local, .env.production, etc.
+config/velya-firebase.json
+*.pem                      # fichiers de clés privées
+*.key
+*.crt
 
-model.h5
-model.keras
+# ✅ Fichiers générés
 coverage/
-
 node_modules/
 frontend/node_modules/
-.env
-config/cleaningapp-firebase.json
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ✅ Modèles entraînés (fichiers lourds à versionner ailleurs si nécessaire)
+*.h5
+*.keras
+*.ckpt
+*.pb
+__pycache__/
+
+# ✅ Dossiers IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ✅ Système d'exploitation
+*.bak
+*.tmp
+*.orig

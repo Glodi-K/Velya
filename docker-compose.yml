@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # Base de données MongoDB
+  mongodb:
+    image: mongo:6.0
+    container_name: velya-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: velya
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - velya-network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: velya-backend
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      NODE_ENV: production
+      MONGO_URI: mongodb://admin:password@mongodb:27017/velya?authSource=admin
+      PORT: 5001
+    depends_on:
+      - mongodb
+    volumes:
+      - ./backend/uploads:/app/uploads
+    networks:
+      - velya-network
+
+  # Service ML
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    container_name: velya-ml
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    environment:
+      FLASK_ENV: production
+      ML_PORT: 5002
+    networks:
+      - velya-network
+
+  # Frontend (pour production)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: velya-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      REACT_APP_API_URL: http://localhost:5001
+      REACT_APP_ML_URL: http://localhost:5002
+    depends_on:
+      - backend
+      - ml-service
+    networks:
+      - velya-network
+
+  # Reverse Proxy (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: velya-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - velya-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  velya-network:
+    driver: bridge

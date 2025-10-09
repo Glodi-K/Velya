@@ -1,0 +1,12 @@
+// tests/testServer.js
+const axios = require("axios");
+
+(async () => {
+  try {
+    const response = await axios.get("http://localhost:5001/api/test");
+    console.log("✅ Réponse du serveur :", response.data);
+  } catch (error) {
+    console.error("❌ Erreur de connexion au serveur :", error.message);
+  }
+})();
+

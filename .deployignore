@@ -1,0 +1,20 @@
+# Fichiers à exclure du déploiement
+node_modules/
+frontend/node_modules/
+uploads/
+*.log
+*.zip
+*.rar
+.env
+.env.local
+cypress/
+tests/
+*.test.js
+jest.config.js
+babel.config.js
+depcheck-*.json
+package-lock*.json
+mnist-8.onnx
+test-*.js
+Nouveau Archive WinRAR ZIP.zip
+historique_velya.txt
