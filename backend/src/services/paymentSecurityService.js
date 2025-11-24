@@ -58,6 +58,26 @@ class PaymentSecurityService {
       };
 
       reservation.status = 'terminée';
+
+      // Si un PaymentIntent Stripe a été créé (autorisation), capturer le paiement maintenant
+      if (reservation.paymentSecurity && reservation.paymentSecurity.stripePaymentIntentId && reservation.paymentSecurity.clientAuthorized) {
+        try {
+          const { stripe } = require('../config/stripe');
+          const piId = reservation.paymentSecurity.stripePaymentIntentId;
+          const captured = await stripe.paymentIntents.capture(piId);
+          // Marquer le paiement client comme effectué
+          reservation.paymentSecurity.clientPaid = true;
+          reservation.paymentSecurity.clientPaymentId = captured.id;
+          reservation.paymentSecurity.clientPaymentDate = new Date();
+          console.log('✅ PaymentIntent capturé:', captured.id);
+        } catch (capErr) {
+          console.error('❌ Erreur lors de la capture PaymentIntent:', capErr);
+          // Si capture échoue, ne pas continuer au paiement du prestataire
+          await reservation.save();
+          throw new Error('Capture du paiement client échouée');
+        }
+      }
+
       await reservation.save();
 
       // Déclencher le paiement du prestataire

@@ -1,16 +1,39 @@
 const mongoose = require('mongoose');
 
 const PrestataireSchema = new mongoose.Schema({
+  // Type de prestataire
+  typePrestataire: {
+    type: String,
+    enum: ['independant', 'entreprise'],
+    required: true,
+  },
+
+  // Informations personne physique (indépendant)
   nom: {
     type: String,
-    required: true,
+    required: function() { return this.typePrestataire === 'independant'; },
+    trim: true,
+  },
+  prenom: {
+    type: String,
+    required: function() { return this.typePrestataire === 'independant'; },
     trim: true,
   },
 
-  nomEntreprise: {
+  // Informations personne morale (entreprise)
+  raisonSociale: {
     type: String,
-    required: false,
+    required: function() { return this.typePrestataire === 'entreprise'; },
     trim: true,
+  },
+  siret: {
+    type: String,
+    required: function() { return this.typePrestataire === 'entreprise'; },
+    trim: true,
+  },
+  representantLegal: {
+    nom: String,
+    prenom: String,
   },
   email: {
     type: String,
@@ -86,6 +109,15 @@ const PrestataireSchema = new mongoose.Schema({
     type: Object,
     default: null,
   },
+  stripeAccountStatus: {
+    type: String,
+    enum: ['incomplete', 'pending_verification', 'active', null],
+    default: null,
+  },
+  stripeOnboardingComplete: {
+    type: Boolean,
+    default: false,
+  },
 
   // ✅ Informations bancaires (stockées de manière sécurisée via Stripe)
   bankAccountLastFour: {
@@ -118,7 +150,10 @@ const PrestataireSchema = new mongoose.Schema({
 });
 
 PrestataireSchema.virtual('name').get(function() {
-  return this.nom;
+  if (this.typePrestataire === 'independant') {
+    return `${this.prenom} ${this.nom}`;
+  }
+  return this.raisonSociale;
 });
 
 // 📍 Index géospatial (désactivé temporairement)

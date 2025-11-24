@@ -1,72 +1,31 @@
 const express = require('express');
 const router = express.Router();
-const stripe = require('../config/stripe');
-require('dotenv').config();
+const Reservation = require('../models/Reservation');
+const verifyToken = require('../middleware/verifyToken');
 
-const Reservation = require('../models/Reservation'); // ✅ importe ton modèle
-
-router.post('/create-checkout-session', async (req, res) => {
-  const { reservationId } = req.body;
-
+// Route pour marquer une réservation comme payée (fallback si webhook ne fonctionne pas)
+router.patch('/:id/mark-paid', verifyToken, async (req, res) => {
   try {
-    const reservation = await Reservation.findById(reservationId);
-
-    if (!reservation) {
-      return res.status(404).json({ error: "❌ Réservation non trouvée." });
-    }
-
-    // ✅ Vérifications strictes
-    console.log("🎯 Données à envoyer à Stripe :", {
-      name: reservation.service,
-      price: reservation.price,
-      currency: 'eur',
-      user: reservation.user,
-      id: reservation._id.toString(),
-    });
-
-    if (!reservation.price || isNaN(reservation.price)) {
-      return res.status(400).json({ error: "❌ Montant invalide." });
-    }
-
-    if (!reservation.service || typeof reservation.service !== 'string') {
-      return res.status(400).json({ error: "❌ Nom de service manquant." });
-    }
-
-    if (!reservation.user) {
-      return res.status(400).json({ error: "❌ Utilisateur manquant." });
-    }
-
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'], // ✅ Apple Pay inclus automatiquement
-      mode: 'payment',
-      line_items: [
-        {
-          price_data: {
-            currency: 'eur',
-            product_data: {
-              name: reservation.service || 'Service de ménage',
-            },
-            unit_amount: reservation.price * 100, // ✅ conversion en centimes
-          },
-          quantity: 1,
-        },
-      ],
-      metadata: {
-        userId: reservation.user.toString() || 'non spécifié',
-        reservationId: reservation._id.toString(),
+    const reservation = await Reservation.findByIdAndUpdate(
+      req.params.id,
+      { 
+        paid: true,
+        paymentDate: new Date(),
+        status: 'confirmé'
       },
-      success_url: 'https://ton-domaine.com/success',
-      cancel_url: 'https://ton-domaine.com/cancel',
-    });
-
-    res.json({ url: session.url });
-    console.log("✅ URL Stripe Checkout :", session.url);
-
+      { new: true }
+    );
+    
+    if (!reservation) {
+      return res.status(404).json({ message: 'Réservation introuvable' });
+    }
+    
+    console.log(`✅ Réservation ${req.params.id} marquée comme payée`);
+    res.json({ success: true, reservation });
   } catch (error) {
-    console.error("❌ Erreur Stripe :", error);
-    res.status(500).json({ error: error.message || "Erreur interne serveur." });
+    console.error('❌ Erreur marquage paiement:', error);
+    res.status(500).json({ message: 'Erreur serveur' });
   }
 });
 
 module.exports = router;
-

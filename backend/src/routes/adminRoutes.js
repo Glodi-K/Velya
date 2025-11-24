@@ -1,9 +1,92 @@
 const express = require("express");
 const router = express.Router();
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { generateToken } = require("../config/jwt");
 const verifyToken = require("../middleware/verifyToken");
 const isAdmin = require("../middleware/isAdmin");
+const Admin = require("../models/Admin");
 const Reservation = require("../models/Reservation");
 const User = require("../models/User");
+const Prestataire = require("../models/Prestataire");
+const AbuseReport = require("../models/AbuseReport");
+const PaymentLog = require("../models/PaymentLog");
+
+// 🔐 Connexion admin
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    const admin = await Admin.findOne({ email, isActive: true });
+    if (!admin) {
+      return res.status(401).json({ message: "Identifiants invalides" });
+    }
+    
+    const isValidPassword = await admin.comparePassword(password);
+    if (!isValidPassword) {
+      return res.status(401).json({ message: "Identifiants invalides" });
+    }
+    
+    // Mise à jour dernière connexion
+    admin.lastLogin = new Date();
+    await admin.save();
+    
+    const token = generateToken({
+      id: admin._id, 
+      role: 'admin', 
+      permissions: admin.permissions
+    });
+    
+    res.json({
+      token,
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        permissions: admin.permissions
+      }
+    });
+  } catch (error) {
+    console.error("❌ Erreur connexion admin:", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// 👤 Profil admin
+router.get("/profile", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.user.id).select('-password');
+    res.json(admin);
+  } catch (error) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// ✏️ Mise à jour profil admin
+router.put("/profile", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { name, email, currentPassword, newPassword } = req.body;
+    const admin = await Admin.findById(req.user.id);
+    
+    if (newPassword) {
+      const isValidPassword = await admin.comparePassword(currentPassword);
+      if (!isValidPassword) {
+        return res.status(400).json({ message: "Mot de passe actuel incorrect" });
+      }
+      admin.password = newPassword;
+    }
+    
+    if (name) admin.name = name;
+    if (email) admin.email = email;
+    
+    await admin.save();
+    
+    res.json({ message: "Profil mis à jour", admin: { name: admin.name, email: admin.email } });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
 
 // 📊 Dashboard Analytics - Indicateurs clés
 router.get("/dashboard", verifyToken, isAdmin, async (req, res) => {
@@ -15,29 +98,34 @@ router.get("/dashboard", verifyToken, isAdmin, async (req, res) => {
     // Statistiques générales
     const totalReservations = await Reservation.countDocuments();
     const totalUsers = await User.countDocuments({ role: "client" });
-    const totalProviders = await User.countDocuments({ role: "prestataire" });
+    const totalProviders = await Prestataire.countDocuments();
+    const activeProviders = await Prestataire.countDocuments({ isApproved: true });
+    const pendingProviders = await Prestataire.countDocuments({ isApproved: false });
 
     // Réservations ce mois
     const monthlyReservations = await Reservation.countDocuments({
       createdAt: { $gte: startOfMonth }
     });
 
-    // Revenus totaux et mensuels
-    const totalRevenue = await Reservation.aggregate([
-      { $match: { status: "terminée", finalPrice: { $exists: true } } },
-      { $group: { _id: null, total: { $sum: "$finalPrice" } } }
+    // Revenus et commissions
+    const totalRevenue = await PaymentLog.aggregate([
+      { $match: { status: "completed" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } }
     ]);
 
-    const monthlyRevenue = await Reservation.aggregate([
+    const monthlyRevenue = await PaymentLog.aggregate([
       { 
         $match: { 
-          status: "terminée", 
-          finalPrice: { $exists: true },
+          status: "completed",
           createdAt: { $gte: startOfMonth }
         }
       },
-      { $group: { _id: null, total: { $sum: "$finalPrice" } } }
+      { $group: { _id: null, total: { $sum: "$amount" } } }
     ]);
+
+    // Commissions de la plateforme (5%)
+    const totalCommissions = totalRevenue[0]?.total * 0.05 || 0;
+    const monthlyCommissions = monthlyRevenue[0]?.total * 0.05 || 0;
 
     // Taux d'annulation
     const cancelledReservations = await Reservation.countDocuments({ status: "annulée" });
@@ -54,26 +142,172 @@ router.get("/dashboard", verifyToken, isAdmin, async (req, res) => {
       { $group: { _id: "$provider", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 5 },
-      { $lookup: { from: "users", localField: "_id", foreignField: "_id", as: "provider" } },
+      { $lookup: { from: "prestataires", localField: "_id", foreignField: "_id", as: "provider" } },
       { $unwind: "$provider" },
       { $project: { name: "$provider.name", count: 1 } }
     ]);
+
+    // Rapports d'abus récents
+    const recentReports = await AbuseReport.countDocuments({
+      createdAt: { $gte: startOfWeek },
+      status: "pending"
+    });
 
     res.json({
       overview: {
         totalReservations,
         totalUsers,
         totalProviders,
+        activeProviders,
+        pendingProviders,
         monthlyReservations,
         totalRevenue: totalRevenue[0]?.total || 0,
         monthlyRevenue: monthlyRevenue[0]?.total || 0,
-        cancellationRate: parseFloat(cancellationRate)
+        totalCommissions,
+        monthlyCommissions,
+        cancellationRate: parseFloat(cancellationRate),
+        recentReports
       },
       statusDistribution,
       topProviders
     });
   } catch (error) {
     console.error("❌ Erreur dashboard:", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// 🏢 Gestion des prestataires
+router.get("/providers", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+    let filter = { isDeleted: { $ne: true } }; // Exclure les prestataires supprimés
+    
+    if (status === 'pending') filter.isApproved = false;
+    if (status === 'approved') filter.isApproved = true;
+    if (status === 'suspended') filter.isSuspended = true;
+    
+    const providers = await Prestataire.find(filter)
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    const total = await Prestataire.countDocuments(filter);
+
+    res.json({
+      providers,
+      pagination: {
+        current: parseInt(page),
+        total: Math.ceil(total / limit),
+        count: total
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// ✅ Approuver/Rejeter prestataire
+router.patch("/providers/:id/approve", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { approved, reason } = req.body;
+    
+    const provider = await Prestataire.findByIdAndUpdate(
+      req.params.id,
+      { 
+        isApproved: approved,
+        approvalDate: approved ? new Date() : null,
+        rejectionReason: approved ? null : reason
+      },
+      { new: true }
+    );
+
+    res.json({ 
+      message: approved ? "Prestataire approuvé" : "Prestataire rejeté", 
+      provider 
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// 🚫 Suspendre/Réactiver prestataire
+router.patch("/providers/:id/suspend", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { suspended, reason } = req.body;
+    
+    const provider = await Prestataire.findByIdAndUpdate(
+      req.params.id,
+      { 
+        isSuspended: suspended,
+        suspensionReason: suspended ? reason : null,
+        suspensionDate: suspended ? new Date() : null
+      },
+      { new: true }
+    );
+
+    res.json({ 
+      message: suspended ? "Prestataire suspendu" : "Prestataire réactivé", 
+      provider 
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// 📋 Gestion des rapports d'abus
+router.get("/reports", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { status = 'pending', page = 1, limit = 20 } = req.query;
+    
+    const reports = await AbuseReport.find({ status })
+      .populate('reporter', 'name email')
+      .populate('reported', 'name email')
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    const total = await AbuseReport.countDocuments({ status });
+
+    res.json({
+      reports,
+      pagination: {
+        current: parseInt(page),
+        total: Math.ceil(total / limit),
+        count: total
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// ⚖️ Traiter rapport d'abus
+router.patch("/reports/:id/resolve", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { action, adminNotes } = req.body;
+    
+    const report = await AbuseReport.findByIdAndUpdate(
+      req.params.id,
+      { 
+        status: 'resolved',
+        adminAction: action,
+        adminNotes,
+        resolvedBy: req.user.id,
+        resolvedAt: new Date()
+      },
+      { new: true }
+    );
+
+    // Actions automatiques selon la décision
+    if (action === 'suspend_user') {
+      await User.findByIdAndUpdate(report.reported, { isSuspended: true });
+    } else if (action === 'suspend_provider') {
+      await Prestataire.findByIdAndUpdate(report.reported, { isSuspended: true });
+    }
+
+    res.json({ message: "Rapport traité", report });
+  } catch (error) {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
@@ -112,18 +346,17 @@ router.get("/analytics", verifyToken, isAdmin, async (req, res) => {
     ]);
 
     // Évolution des revenus
-    const revenueTrend = await Reservation.aggregate([
+    const revenueTrend = await PaymentLog.aggregate([
       { 
         $match: { 
           createdAt: { $gte: startDate },
-          status: "terminée",
-          finalPrice: { $exists: true }
+          status: "completed"
         }
       },
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-          revenue: { $sum: "$finalPrice" }
+          revenue: { $sum: "$amount" }
         }
       },
       { $sort: { _id: 1 } }
@@ -204,6 +437,67 @@ router.get("/reservations", verifyToken, isAdmin, async (req, res) => {
         current: parseInt(page),
         total: Math.ceil(total / limit),
         count: total
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// 🗑️ Supprimer (marquer comme supprimé) un prestataire
+router.delete("/providers/:id", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const provider = await Prestataire.findByIdAndUpdate(
+      req.params.id,
+      { 
+        isDeleted: true,
+        isActive: false,
+        deletedAt: new Date(),
+        deletedBy: req.user.id
+      },
+      { new: true }
+    );
+
+    if (!provider) {
+      return res.status(404).json({ message: "Prestataire non trouvé" });
+    }
+
+    res.json({ 
+      message: "Prestataire supprimé avec succès", 
+      provider 
+    });
+  } catch (error) {
+    console.error("❌ Erreur suppression prestataire:", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// 💰 Rapports financiers
+router.get("/financial-reports", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const filter = {};
+    
+    if (startDate && endDate) {
+      filter.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+
+    const payments = await PaymentLog.find({ ...filter, status: 'completed' })
+      .populate('reservation', 'client provider')
+      .sort({ createdAt: -1 });
+
+    const totalRevenue = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    const totalCommissions = totalRevenue * 0.05;
+
+    res.json({
+      payments,
+      summary: {
+        totalRevenue,
+        totalCommissions,
+        paymentCount: payments.length
       }
     });
   } catch (error) {

@@ -45,6 +45,49 @@ const PrestataireSimpleSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false,
+  },
+  deletedAt: {
+    type: Date,
+    default: null,
+  },
+  deletedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin',
+    default: null,
+  },
+  // Champs Stripe
+  stripeAccountId: {
+    type: String,
+    default: null,
+  },
+  stripeOnboardingComplete: {
+    type: Boolean,
+    default: false,
+  },
+  stripeAccountVerified: {
+    type: Boolean,
+    default: false,
+  },
+  // Champs financiers
+  totalEarnings: {
+    type: Number,
+    default: 0,
+  },
+  pendingEarnings: {
+    type: Number,
+    default: 0,
+  },
+  paidEarnings: {
+    type: Number,
+    default: 0,
+  },
 }, {
   timestamps: true,
   collection: 'prestataires'

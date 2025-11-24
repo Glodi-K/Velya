@@ -18,8 +18,14 @@ const verifyToken = async (req, res, next) => {
     }
     
     if (!user) {
-      return res.status(401).json({ message: "⛔ Utilisateur introuvable" });
+      return res.status(401).json({ message: "⛔ Utilisateur introuvable ou supprimé" });
     }
+    
+    // Vérifier si le prestataire existe toujours (pas supprimé)
+    if (user.role === 'prestataire' && (!user.isActive || user.isDeleted)) {
+      return res.status(401).json({ message: "⛔ Compte prestataire désactivé ou supprimé" });
+    }
+    
     req.user = user;
     next();
   } catch (error) {

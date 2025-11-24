@@ -133,7 +133,7 @@ router.patch("/availability", verifyToken, async (req, res) => {
 // ✅ Route pour récupérer tous les prestataires
 router.get("/", async (req, res) => {
     try {
-        const prestataires = await Prestataire.find();
+        const prestataires = await Prestataire.find({ isDeleted: { $ne: true } });
         res.json({ message: "✅ Prestataires récupérés", prestataires });
 
     } catch (error) {
@@ -145,7 +145,11 @@ router.get("/", async (req, res) => {
 // ✅ Route pour récupérer les prestataires disponibles avec leur localisation
 router.get("/available", async (req, res) => {
     try {
-        const prestataires = await Prestataire.find({ available: true }).select("nom location");
+        const prestataires = await Prestataire.find({ 
+            available: true, 
+            isDeleted: { $ne: true },
+            isActive: true 
+        }).select("nom location");
         res.json({ message: "✅ Prestataires disponibles récupérés", prestataires });
 
     } catch (error) {
@@ -162,9 +166,13 @@ router.get("/:id", async (req, res) => {
             return res.status(400).json({ message: "❌ ID du prestataire invalide" });
         }
 
-        const prestataire = await Prestataire.findById(req.params.id);
+        const prestataire = await Prestataire.findOne({ 
+            _id: req.params.id, 
+            isDeleted: { $ne: true } 
+        });
+        
         if (!prestataire) {
-            return res.status(404).json({ message: "❌ Prestataire non trouvé" });
+            return res.status(404).json({ message: "❌ Prestataire non trouvé ou supprimé" });
         }
 
         res.json({ message: "✅ Prestataire trouvé", prestataire });
@@ -366,6 +374,103 @@ router.delete('/favorites/:providerId', verifyToken, async (req, res) => {
     res.status(200).json({ _id: providerId });
   } catch (error) {
     console.error("❌ Erreur DELETE favoris :", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// ✅ Vérifier le statut Stripe du prestataire
+router.get('/stripe-status/:providerId', verifyToken, async (req, res) => {
+  try {
+    const { providerId } = req.params;
+    const prestataire = await Prestataire.findById(providerId);
+    
+    if (!prestataire) {
+      return res.status(404).json({ message: "Prestataire non trouvé" });
+    }
+    
+    const hasStripeAccount = !!(prestataire.stripeAccountId && prestataire.stripeOnboardingComplete);
+    
+    // Si le prestataire a un compte Stripe, actualiser le statut depuis Stripe
+    let accountStatus = prestataire.stripeAccountStatus;
+    if (hasStripeAccount && prestataire.stripeAccountId) {
+      try {
+        const { stripe } = require('../config/stripe');
+        const account = await stripe.accounts.retrieve(prestataire.stripeAccountId);
+        
+        // Mettre à jour le statut basé sur les détails Stripe
+        accountStatus = account.details_submitted 
+          ? account.charges_enabled && account.payouts_enabled
+            ? 'active'
+            : 'pending_verification'
+          : 'incomplete';
+        
+        // Sauvegarder les mises à jour
+        prestataire.stripeAccountStatus = accountStatus;
+        prestataire.stripeOnboardingComplete = account.details_submitted;
+        prestataire.stripeAccountVerified = accountStatus === 'active';
+        prestataire.stripeAccountDetails = {
+          detailsSubmitted: account.details_submitted,
+          chargesEnabled: account.charges_enabled,
+          payoutsEnabled: account.payouts_enabled,
+          lastUpdated: new Date()
+        };
+        await prestataire.save();
+        
+        console.log(`✅ Status Stripe actualisé pour ${prestataire.name}: ${accountStatus}`);
+      } catch (stripeError) {
+        console.error('❌ Erreur lors de l\'actualisation du statut Stripe:', stripeError);
+        // Continuer avec le statut en base si erreur
+      }
+    }
+    
+    res.json({ 
+      hasStripeAccount,
+      accountStatus: accountStatus || null
+    });
+  } catch (error) {
+    console.error("❌ Erreur vérification Stripe:", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
+// ✅ Récupérer les revenus du prestataire
+router.get('/earnings/:providerId', verifyToken, async (req, res) => {
+  try {
+    const { providerId } = req.params;
+    const PaymentLog = require('../models/PaymentLog');
+    
+    // Vérifier que l'utilisateur peut accéder à ces données
+    if (req.user.id !== providerId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: "Accès non autorisé" });
+    }
+    
+    // Récupérer tous les paiements du prestataire
+    const payments = await PaymentLog.find({ 
+      provider: providerId, 
+      status: 'completed' 
+    }).populate('reservation', 'date categorie');
+    
+    // Calculer les statistiques
+    const totalEarnings = payments.reduce((sum, payment) => sum + payment.providerAmount, 0);
+    const totalCommissions = payments.reduce((sum, payment) => sum + payment.applicationFee, 0);
+    const totalTransactions = payments.length;
+    
+    // Revenus par mois
+    const monthlyEarnings = {};
+    payments.forEach(payment => {
+      const month = new Date(payment.createdAt).toISOString().slice(0, 7); // YYYY-MM
+      monthlyEarnings[month] = (monthlyEarnings[month] || 0) + payment.providerAmount;
+    });
+    
+    res.json({
+      totalEarnings,
+      totalCommissions,
+      totalTransactions,
+      monthlyEarnings,
+      recentPayments: payments.slice(-10) // 10 derniers paiements
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération revenus:', error);
     res.status(500).json({ message: "Erreur serveur" });
   }
 });

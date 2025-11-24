@@ -1,54 +1,76 @@
-// models/PaymentLog.js
-// 📊 Modèle pour journaliser tous les paiements - Section 6.1
-
 const mongoose = require('mongoose');
 
-const paymentLogSchema = new mongoose.Schema({
-  reservationId: {
+const PaymentLogSchema = new mongoose.Schema({
+  reservation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Reservation',
     required: true
   },
-  
-  type: {
+  client: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  provider: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PrestataireSimple',
+    required: false
+  },
+  paymentIntentId: {
     type: String,
-    enum: [
-      'client_payment',
-      'provider_payment', 
-      'commission_payment',
-      'refund',
-      'chargeback',
-      'dispute'
-    ],
+    required: true,
+    unique: true
+  },
+  totalAmount: {
+    type: Number,
     required: true
   },
-  
-  data: {
-    type: mongoose.Schema.Types.Mixed,
-    required: true
+  applicationFee: {
+    type: Number,
+    required: true,
+    default: 0
   },
-  
-  timestamp: {
-    type: Date,
-    default: Date.now
+  providerAmount: {
+    type: Number,
+    required: true,
+    default: 0
   },
-  
-  // Données Stripe/PayPal
-  paymentId: String,
-  amount: Number,
-  currency: { type: String, default: 'usd' },
-  status: String,
-  
-  // Métadonnées de sécurité
-  ipAddress: String,
-  userAgent: String,
-  
+  currency: {
+    type: String,
+    required: true,
+    default: 'eur'
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'completed', 'failed', 'refunded'],
+    default: 'pending'
+  },
+  paymentMethod: {
+    type: String,
+    enum: ['stripe', 'paypal', 'bank_transfer'],
+    default: 'stripe'
+  },
+  stripeTransferId: {
+    type: String,
+    required: false
+  },
+  refundId: {
+    type: String,
+    required: false
+  },
+  notes: {
+    type: String,
+    required: false
+  }
 }, {
   timestamps: true
 });
 
-// Index pour les recherches rapides
-paymentLogSchema.index({ reservationId: 1, timestamp: -1 });
-paymentLogSchema.index({ type: 1, timestamp: -1 });
+// Index pour les requêtes fréquentes
+PaymentLogSchema.index({ reservation: 1 });
+PaymentLogSchema.index({ client: 1 });
+PaymentLogSchema.index({ provider: 1 });
+PaymentLogSchema.index({ status: 1 });
+PaymentLogSchema.index({ createdAt: -1 });
 
-module.exports = mongoose.model('PaymentLog', paymentLogSchema);
+module.exports = mongoose.model('PaymentLog', PaymentLogSchema);

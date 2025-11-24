@@ -7,6 +7,7 @@ const determineSaison = require("../utils/determineSaison");
 const { sendPushNotification } = require("../services/notificationService");
 const { updateUserPreferences, addFavoriteProvider } = require("../services/userService");
 const PaymentSecurityService = require("../services/paymentSecurityService");
+const { createAndSendNotification } = require("../utils/notificationHelper");
 
 // ✅ Générer un code PIN à 4 chiffres
 const generatePin = () => Math.floor(1000 + Math.random() * 9000).toString();
@@ -97,7 +98,7 @@ const createReservation = async (req, res) => {
       elements: parseOptionsObject(elements),
       niveauSalete: niveauSale,
       validationPin: generatePin(),
-      status: "En attente du prestataire",
+    status: "en_attente_prestataire",
       categorie: categorie || "Nettoyage maison",
       saison,
       serviceSpecifique,
@@ -116,19 +117,39 @@ const createReservation = async (req, res) => {
       console.log("✅ Préférences mises à jour :", updatedUser.preferences);
     }
 
+    // Notifier tous les prestataires disponibles
+    const prestataires = await Prestataire.find({ isApproved: true });
+    for (const prestataire of prestataires) {
+      await createAndSendNotification(
+        req.app,
+        prestataire._id,
+        '🎉 Nouvelle mission disponible',
+        `${typeService} - ${surface}m² à ${adresse} le ${new Date(date).toLocaleDateString('fr-FR')}`,
+        'new_reservation'
+      );
+    }
+
     const io = req.app.get("io");
-    io.emit("nouvelle_reservation", {
-      id: reservation._id,
-      adresse: reservation.adresse,
-      date: reservation.date,
-      heure: reservation.heure,
-      service: reservation.service,
-    });
+    if (io) {
+      console.log('📡 Émission nouvelle_reservation:', reservation._id);
+      io.emit("nouvelle_reservation", {
+        id: reservation._id,
+        adresse: reservation.adresse,
+        date: reservation.date,
+        heure: reservation.heure,
+        service: reservation.service,
+      });
+    }
 
     res.status(201).json({ message: "✅ Réservation créée avec succès", reservation });
   } catch (error) {
     console.error("❌ Erreur création réservation :", error);
-    res.status(500).json({ message: "Erreur serveur lors de la création." });
+    const payload = { message: "Erreur serveur lors de la création." };
+    if (process.env.NODE_ENV !== 'production') {
+      payload.error = error.message;
+      payload.stack = error.stack;
+    }
+    res.status(500).json(payload);
   }
 };
 
@@ -241,11 +262,17 @@ const getUpcomingReservations = async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    const reservations = await Reservation.find({
+    const allReservations = await Reservation.find({
       provider: req.params.providerId,
-      status: { $nin: ["terminée", "annulée", "refused"] },
       date: { $gte: today.toISOString() }
     }).sort({ date: 1 });
+    
+    // Filtrer pour exclure les missions terminées ET payées, ainsi que les annulées/refusées
+    const reservations = allReservations.filter(r => {
+      if (r.status === 'annulée' || r.status === 'refused') return false;
+      if (r.status === 'terminée' && r.paid === true) return false;
+      return true;
+    });
     
     res.status(200).json(reservations);
   } catch (error) {
@@ -273,7 +300,45 @@ const acceptReservation = async (req, res) => {
 
     reservation.status = "en_attente_estimation";
     reservation.provider = req.user.id;
+    
+    // ✅ Générer le lien Google Calendar
+    const googleCalendarService = require('../services/googleCalendarService');
+    const calendarLink = googleCalendarService.generateCalendarLink(reservation);
+    
+    // ✅ Créer l'événement Google Calendar (optionnel)
+    try {
+      const calendarEvent = await googleCalendarService.createEvent(reservation, provider.email);
+      if (calendarEvent) {
+        reservation.googleCalendarEventId = calendarEvent.id;
+        console.log('✅ Événement Google Calendar créé:', calendarEvent.id);
+      }
+    } catch (calendarError) {
+      console.error('❌ Erreur Google Calendar:', calendarError);
+    }
+    
     await reservation.save();
+
+    // ✅ Émettre événement Socket.IO
+    const io = req.app.get("io");
+    if (io) {
+      console.log('📡 Émission reservation_updated et mission_accepted pour:', reservation._id);
+      io.emit("reservation_updated", { reservationId: reservation._id, status: reservation.status });
+      io.to(`user_${reservation.client._id}`).emit("mission_accepted", reservation);
+      io.to(`user_${req.user.id}`).emit("mission_accepted", reservation);
+    } else {
+      console.error('❌ Socket.IO non disponible');
+    }
+
+    // ✅ Créer une notification pour le client
+    if (reservation.client && reservation.client._id) {
+      await createAndSendNotification(
+        req.app,
+        reservation.client._id,
+        '✅ Mission acceptée !',
+        `${providerName} a accepté votre mission du ${new Date(reservation.date).toLocaleDateString('fr-FR')}`,
+        'mission_accepted'
+      );
+    }
 
     // ✅ Envoyer un email au client pour l'informer que sa mission a été acceptée
     if (reservation.client && reservation.client.email) {
@@ -291,7 +356,11 @@ const acceptReservation = async (req, res) => {
       }
     }
 
-    res.status(200).json({ message: "✅ Mission acceptée, en attente d'estimation", reservation });
+    res.status(200).json({ 
+      message: "✅ Mission acceptée, en attente d'estimation", 
+      reservation,
+      calendarLink 
+    });
   } catch (error) {
     console.error("❌ Erreur lors de l'acceptation :", error);
     res.status(500).json({ error: "Erreur serveur" });
@@ -304,8 +373,16 @@ const refuseReservation = async (req, res) => {
       req.params.id,
       { status: "refused" },
       { new: true }
-    );
+    ).populate('client');
     if (!reservation) return res.status(404).json({ message: "Réservation introuvable" });
+    
+    // ✅ Émettre événement Socket.IO
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("reservation_updated", { reservationId: reservation._id, status: reservation.status });
+      if (reservation.client) io.to(`user_${reservation.client._id}`).emit("mission_refused", reservation);
+    }
+    
     res.status(200).json({ message: "❌ Réservation refusée avec succès", reservation });
   } catch (error) {
     console.error("❌ Erreur lors du refus :", error);
@@ -353,8 +430,16 @@ const estimateReservation = async (req, res) => {
       req.params.id,
       { estimatedPrice, status: "estime" },
       { new: true }
-    );
+    ).populate('client');
     if (!reservation) return res.status(404).json({ message: "Réservation introuvable" });
+    
+    // ✅ Émettre événement Socket.IO
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("reservation_updated", { reservationId: reservation._id, status: reservation.status });
+      if (reservation.client) io.to(`user_${reservation.client._id}`).emit("estimation_received", reservation);
+    }
+    
     res.status(200).json({ message: "✅ Estimation envoyée", reservation });
   } catch (error) {
     res.status(500).json({ message: "Erreur serveur" });
@@ -367,8 +452,17 @@ const markAsPaid = async (req, res) => {
       req.params.id,
       { paid: true, status: "confirmed" },
       { new: true }
-    );
+    ).populate('client provider');
     if (!reservation) return res.status(404).json({ message: "Réservation introuvable" });
+    
+    // ✅ Émettre événement Socket.IO
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("reservation_updated", { reservationId: reservation._id, status: reservation.status, paid: true });
+      if (reservation.client) io.to(`user_${reservation.client._id}`).emit("payment_confirmed", reservation);
+      if (reservation.provider) io.to(`user_${reservation.provider._id}`).emit("payment_confirmed", reservation);
+    }
+    
     res.status(200).json({ message: "✅ Paiement confirmé", reservation });
   } catch (error) {
     res.status(500).json({ message: "Erreur serveur" });

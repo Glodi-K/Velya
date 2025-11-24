@@ -158,7 +158,8 @@ router.get("/accepted/:providerId", verifyToken, async (req, res) => {
     const { providerId } = req.params;
     const acceptedReservations = await Reservation.find({
       provider: providerId,
-      status: { $in: ["en_attente_estimation", "estime", "confirmed", "en cours"] }
+      status: { $in: ["en_cours", "confirmed", "terminée"] },
+      paid: { $ne: true } // Inclure uniquement les missions non payées
     })
     .populate("client", "name email phone")
     .sort({ date: 1 });
@@ -171,6 +172,59 @@ router.get("/accepted/:providerId", verifyToken, async (req, res) => {
 });
 
 // ...route /assigned/:providerId supprimée...
+
+// ✅ Annuler une réservation par le client
+router.patch("/:id/cancel", verifyToken, async (req, res) => {
+  try {
+    const reservation = await Reservation.findById(req.params.id)
+      .populate('client', 'name email')
+      .populate('provider', 'name email');
+    if (!reservation) return res.status(404).json({ message: "❌ Réservation non trouvée" });
+    
+    // Vérifier que c'est bien le client qui annule
+    if (req.user.id !== reservation.client._id.toString()) {
+      return res.status(403).json({ message: "⛔ Accès interdit" });
+    }
+    
+    // Vérifier que la mission n'est pas déjà terminée
+    if (reservation.status === "terminée") {
+      return res.status(400).json({ message: "❌ Impossible d'annuler une mission terminée" });
+    }
+    
+    const updatedReservation = await Reservation.findByIdAndUpdate(
+      req.params.id,
+      { status: "annulée" },
+      { new: true }
+    );
+    
+    // ✅ Créer une notification pour le prestataire si assigné
+    if (reservation.provider && reservation.provider._id) {
+      const { createAndSendNotification } = require('../utils/notificationHelper');
+      await createAndSendNotification(
+        req.app,
+        reservation.provider._id,
+        '❌ Mission annulée',
+        `La mission du ${new Date(reservation.date).toLocaleDateString('fr-FR')} a été annulée par le client`,
+        'reservation'
+      );
+    }
+    
+    // Envoyer un email au prestataire si assigné
+    if (reservation.provider && reservation.provider.email) {
+      try {
+        await sendReservationCancellation(reservation.provider.email, reservation);
+        console.log("✅ Email d'annulation envoyé au prestataire:", reservation.provider.email);
+      } catch (emailError) {
+        console.error("❌ Erreur lors de l'envoi de l'email d'annulation:", emailError);
+      }
+    }
+    
+    res.json({ message: "✅ Réservation annulée avec succès", reservation: updatedReservation });
+  } catch (error) {
+    console.error("❌ Erreur lors de l'annulation:", error);
+    res.status(500).json({ message: "❌ Erreur serveur" });
+  }
+});
 
 // ✅ Marquer une commande comme terminée
 router.patch("/:id/complete", verifyToken, async (req, res) => {
@@ -189,6 +243,18 @@ router.patch("/:id/complete", verifyToken, async (req, res) => {
       { status: "terminée" },
       { new: true }
     );
+    
+    // ✅ Créer une notification pour le client
+    if (reservation.client && reservation.client._id) {
+      const { createAndSendNotification } = require('../utils/notificationHelper');
+      await createAndSendNotification(
+        req.app,
+        reservation.client._id,
+        '✅ Mission terminée !',
+        `Votre mission du ${new Date(reservation.date).toLocaleDateString('fr-FR')} a été terminée. N'oubliez pas de laisser un avis !`,
+        'mission'
+      );
+    }
     
     // ✅ Envoyer un email au client pour l'informer de la fin de mission
     if (reservation.client && reservation.client.email) {
@@ -211,6 +277,32 @@ router.patch("/:id/complete", verifyToken, async (req, res) => {
   } catch (error) {
     console.error("❌ Erreur lors de la finalisation:", error);
     res.status(500).json({ message: "❌ Erreur serveur" });
+  }
+});
+
+// ✅ Envoyer un rappel de paiement au client pour une réservation (accessible au prestataire)
+router.post('/:id/send-payment-reminder', verifyToken, async (req, res) => {
+  try {
+    const reservation = await Reservation.findById(req.params.id).populate('client', 'name email').populate('provider', 'name email');
+    if (!reservation) return res.status(404).json({ message: '❌ Réservation non trouvée' });
+
+    // Seul le prestataire assigné peut envoyer un rappel de paiement
+    if (!reservation.provider || req.user.id !== reservation.provider._id.toString()) {
+      return res.status(403).json({ message: '⛔ Accès interdit' });
+    }
+
+    const { sendPaymentReminder } = require('../services/emailService');
+    if (!reservation.client || !reservation.client.email) {
+      return res.status(400).json({ message: "❌ Le client n'a pas d'email enregistré" });
+    }
+
+    const sent = await sendPaymentReminder(reservation.client.email, reservation);
+    if (!sent) return res.status(500).json({ message: '❌ Échec envoi rappel' });
+
+    res.json({ message: '✅ Rappel de paiement envoyé au client' });
+  } catch (error) {
+    console.error('❌ Erreur send-payment-reminder:', error);
+    res.status(500).json({ message: '❌ Erreur serveur' });
   }
 });
 

@@ -71,7 +71,7 @@ npm run dev
 
 # Ou démarrer individuellement
 npm run dev:backend    # Backend sur port 5001
-npm run dev:frontend   # Frontend sur port 3000
+npm run dev:frontend   # Frontend sur port 3001
 npm run dev:ml         # Service ML sur port 5002
 ```
 
@@ -125,7 +125,7 @@ CLOUDINARY_URL=your_cloudinary_url
 SENTRY_DSN=your_sentry_dsn
 
 # URLs
-FRONTEND_URL=http://localhost:3000
+FRONTEND_URL=http://localhost:3001
 BACKEND_URL=http://localhost:5001
 ML_SERVICE_URL=http://localhost:5002
 ```

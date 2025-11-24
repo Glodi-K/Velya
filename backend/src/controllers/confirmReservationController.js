@@ -91,14 +91,19 @@ const confirmReservation = async (req, res) => {
 
     // Émettre l'événement de nouvelle réservation
     const io = req.app.get("io");
-    io.emit("nouvelle_reservation", {
-      id: reservation._id,
-      adresse: reservation.adresse,
-      date: reservation.date,
-      heure: reservation.heure,
-      service: reservation.service,
-      provider: providerId
-    });
+    if (io) {
+      console.log('📡 Émission nouvelle_reservation:', reservation._id);
+      io.emit("nouvelle_reservation", {
+        id: reservation._id,
+        adresse: reservation.adresse,
+        date: reservation.date,
+        heure: reservation.heure,
+        service: reservation.service,
+        provider: providerId
+      });
+      io.to(`user_${providerId}`).emit("new_mission", reservation);
+      io.to(`user_${clientId}`).emit("reservation_created", reservation);
+    }
 
     res.status(201).json({ 
       message: "✅ Réservation confirmée avec succès", 

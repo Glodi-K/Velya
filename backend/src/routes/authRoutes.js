@@ -2,13 +2,32 @@ const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { generateToken } = require("../config/jwt");
 const User = require("../models/User");
-const Prestataire = require("../models/PrestataireSimple");
+const Prestataire = require("../models/Prestataire");
+const { logout } = require("../controllers/logoutController");
 
 // Route d'inscription utilisateur
 router.post("/register", async (req, res) => {
-  const { name, email, password, phone, address, role = 'client' } = req.body;
   try {
+    const { name, email, password, phone, address, role = 'client' } = req.body;
+    
+    // Validation des champs requis
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "❌ Nom, email et mot de passe requis" });
+    }
+    
+    // Validation de l'email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: "❌ Format d'email invalide" });
+    }
+    
+    // Validation du mot de passe
+    if (password.length < 6) {
+      return res.status(400).json({ message: "❌ Le mot de passe doit contenir au moins 6 caractères" });
+    }
+    
     // Vérifier si l'email existe déjà
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -21,31 +40,37 @@ router.post("/register", async (req, res) => {
     // Générer un code de parrainage unique
     const shortid = require('shortid');
     let codeUnique, existe = true;
-    while (existe) {
+    let attempts = 0;
+    while (existe && attempts < 10) {
       codeUnique = shortid.generate();
       const codeCheck = await User.findOne({ referralCode: codeUnique });
       if (!codeCheck) existe = false;
+      attempts++;
+    }
+    
+    if (attempts >= 10) {
+      return res.status(500).json({ message: "❌ Erreur génération code parrainage" });
     }
 
     // Créer l'utilisateur avec le rôle spécifié
     const newUser = new User({
-      name,
-      email,
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
       password: hashedPassword,
-      phone: phone || '',
-      address: address || '',
-      role: role, // Utiliser le rôle envoyé par le frontend
-      referralCode: codeUnique, // Ajouter le code de parrainage unique
+      phone: phone ? phone.trim() : '',
+      address: address ? address.trim() : '',
+      role: role,
+      referralCode: codeUnique,
     });
 
     await newUser.save();
 
-    // Générer un token JWT comme pour le login
-    const token = jwt.sign(
-      { id: newUser._id, role: newUser.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    // Générer un token JWT avec durée adaptée au rôle
+    const token = generateToken({
+      id: newUser._id, 
+      role: newUser.role,
+      name: newUser.name
+    });
 
     res.status(201).json({
       message: "✅ Utilisateur inscrit avec succès !",
@@ -53,53 +78,79 @@ router.post("/register", async (req, res) => {
       token
     });
   } catch (error) {
-    console.error("🔥 Erreur serveur:", error);
-    res.status(500).json({ message: "❌ Erreur serveur", error });
+    console.error("🔥 Erreur serveur register:", error);
+    
+    // Gestion spécifique des erreurs MongoDB
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "❌ Email déjà utilisé" });
+    }
+    
+    res.status(500).json({ message: "❌ Erreur serveur", error: error.message });
   }
 });
 
 // Route d'inscription prestataire
 router.post("/register-prestataire", async (req, res) => {
   console.log("📝 Données reçues:", req.body);
-  const { name, email, password, phone, address, location } = req.body;
+  const { typePrestataire, nom, prenom, raisonSociale, siret, representantLegal, email, password, phone, address } = req.body;
   
-  if (!name || !email || !password || !phone || !address) {
-    return res.status(400).json({ message: "❌ Tous les champs sont requis" });
+  if (!typePrestataire || !email || !password || !phone || !address) {
+    return res.status(400).json({ message: "❌ Champs requis manquants" });
+  }
+
+  if (typePrestataire === 'independant' && (!nom || !prenom)) {
+    return res.status(400).json({ message: "❌ Nom et prénom requis pour un indépendant" });
+  }
+
+  if (typePrestataire === 'entreprise' && (!raisonSociale || !siret)) {
+    return res.status(400).json({ message: "❌ Raison sociale et SIRET requis pour une entreprise" });
   }
   
   try {
-    // Vérifier si l'email existe déjà
     const existingPrestataire = await Prestataire.findOne({ email });
     if (existingPrestataire) {
       return res.status(400).json({ message: "❌ Email déjà utilisé" });
     }
 
-    // Hacher le mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Créer le prestataire
-    const newPrestataire = new Prestataire({
-      nom: name,
+    const prestataireData = {
+      typePrestataire,
       email,
       password: hashedPassword,
       phone,
       address,
-    });
+    };
+
+    if (typePrestataire === 'independant') {
+      prestataireData.nom = nom;
+      prestataireData.prenom = prenom;
+    } else {
+      prestataireData.raisonSociale = raisonSociale;
+      prestataireData.siret = siret;
+      prestataireData.representantLegal = representantLegal;
+    }
+
+    const newPrestataire = new Prestataire(prestataireData);
 
     console.log("💾 Tentative de sauvegarde prestataire...");
     await newPrestataire.save();
     console.log("✅ Prestataire sauvegardé avec succès");
 
-    // Générer un token JWT
-    const token = jwt.sign(
-      { id: newPrestataire._id, role: 'prestataire' },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const token = generateToken({
+      id: newPrestataire._id, 
+      role: 'prestataire',
+      name: typePrestataire === 'independant' ? `${prenom} ${nom}` : raisonSociale
+    });
 
     res.status(201).json({
       message: "✅ Prestataire inscrit avec succès !",
-      user: { id: newPrestataire._id, name: newPrestataire.nom, email: newPrestataire.email, role: 'prestataire' },
+      user: { 
+        id: newPrestataire._id, 
+        name: typePrestataire === 'independant' ? `${prenom} ${nom}` : raisonSociale, 
+        email: newPrestataire.email, 
+        role: 'prestataire' 
+      },
       token
     });
   } catch (error) {
@@ -111,118 +162,235 @@ router.post("/register-prestataire", async (req, res) => {
 
 // Route de connexion unique
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-
   try {
+    const { email, password } = req.body;
+    
+    // Validation des champs requis
+    if (!email || !password) {
+      return res.status(400).json({ message: "❌ Email et mot de passe requis" });
+    }
+    
+    // Validation de l'email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: "❌ Format d'email invalide" });
+    }
+    
+    const normalizedEmail = email.toLowerCase().trim();
+
     // Vérifier d'abord dans Prestataire
-    const prestataire = await Prestataire.findOne({ email });
-    if (prestataire && (await bcrypt.compare(password, prestataire.password))) {
-      console.log('[LOGIN PRESTATAIRE] id utilisé pour le token :', prestataire._id);
-      console.log('[LOGIN PRESTATAIRE] rôle utilisé pour le token :', 'prestataire');
-      const token = jwt.sign(
-        { id: prestataire._id, role: 'prestataire' },
-        process.env.JWT_SECRET,
-        { expiresIn: "7d" }
-      );
-      console.log('[LOGIN PRESTATAIRE] token généré :', token);
-      return res.json({
-        token,
-        user: { id: prestataire._id, name: prestataire.name, email: prestataire.email, role: 'prestataire' },
-        redirectTo: '/dashboard-prestataire'
-      });
+    const prestataire = await Prestataire.findOne({ email: normalizedEmail });
+    if (prestataire && prestataire.password) {
+      const isValidPassword = await bcrypt.compare(password, prestataire.password);
+      if (isValidPassword) {
+        console.log('[LOGIN PRESTATAIRE] id utilisé pour le token :', prestataire._id);
+        console.log('[LOGIN PRESTATAIRE] rôle utilisé pour le token :', 'prestataire');
+        
+        const token = generateToken({
+          id: prestataire._id, 
+          role: 'prestataire',
+          name: prestataire.nom || prestataire.name || 'Prestataire'
+        });
+        
+        console.log('[LOGIN PRESTATAIRE] token généré :', !!token);
+        
+        return res.json({
+          token,
+          user: { 
+            id: prestataire._id, 
+            name: prestataire.nom || prestataire.name || 'Prestataire', 
+            email: prestataire.email, 
+            role: 'prestataire' 
+          },
+          redirectTo: '/dashboard-prestataire'
+        });
+      }
     }
 
     // Sinon vérifier dans User
-    const user = await User.findOne({ email });
-    if (user && (await bcrypt.compare(password, user.password))) {
-      const token = jwt.sign(
-        { id: user._id, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: "7d" }
-      );
-      return res.json({
-        token,
-        user: { id: user._id, name: user.name, email: user.email, role: user.role },
-        redirectTo: '/dashboard-client'
-      });
+    const user = await User.findOne({ email: normalizedEmail });
+    if (user && user.password) {
+      const isValidPassword = await bcrypt.compare(password, user.password);
+      if (isValidPassword) {
+        const token = generateToken({
+          id: user._id, 
+          role: user.role || 'client',
+          name: user.name || 'Utilisateur'
+        });
+        
+        return res.json({
+          token,
+          user: { 
+            id: user._id, 
+            name: user.name || 'Utilisateur', 
+            email: user.email, 
+            role: user.role || 'client' 
+          },
+          redirectTo: '/dashboard-client'
+        });
+      }
     }
 
     res.status(401).json({ message: "Email ou mot de passe incorrect" });
   } catch (err) {
-    res.status(500).json({ message: "Erreur serveur" });
+    console.error('🔥 Erreur login:', err);
+    res.status(500).json({ message: "Erreur serveur", error: err.message });
   }
 });
 
 // Routes de profil simplifiées
 router.get("/profile", async (req, res) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ message: "Token manquant" });
-
   try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: "Token manquant ou format invalide" });
+    }
+    
+    const token = authHeader.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({ message: "Token manquant" });
+    }
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!decoded || !decoded.id) {
+      return res.status(401).json({ message: "Token invalide" });
+    }
+    
     let user;
     
     console.log("[profile] Rôle décodé:", decoded.role);
+    
     if (decoded.role === 'prestataire') {
       console.log("[profile] Recherche dans Prestataire avec ID:", decoded.id);
       user = await Prestataire.findById(decoded.id).select("-password");
       console.log("[profile] Prestataire trouvé:", !!user);
+      
+      if (user) {
+        try {
+          // Calculer les statistiques réelles du prestataire
+          const Reservation = require('../models/Reservation');
+          
+          // Note moyenne réelle
+          const reservationsWithRating = await Reservation.find({
+            provider: decoded.id,
+            rating: { $exists: true, $ne: null }
+          });
+          
+          const averageRating = reservationsWithRating.length > 0 
+            ? (reservationsWithRating.reduce((sum, res) => sum + (res.rating || 0), 0) / reservationsWithRating.length).toFixed(1)
+            : null;
+          
+          // Missions terminées
+          const completedMissions = await Reservation.countDocuments({
+            provider: decoded.id,
+            status: { $in: ['terminée', 'completed'] }
+          });
+          
+          // Revenus totaux
+          const completedReservations = await Reservation.find({
+            provider: decoded.id,
+            status: { $in: ['terminée', 'completed'] },
+            paid: true
+          });
+          
+          const totalEarnings = completedReservations.reduce((sum, res) => sum + (res.partPrestataire || 0), 0);
+          
+          // Heures travaillées (estimation basée sur les missions)
+          const totalHours = completedMissions * 3; // Estimation moyenne de 3h par mission
+          
+          // Ajouter les statistiques à l'objet user
+          user = user.toObject();
+          user.averageRating = averageRating;
+          user.completedMissions = completedMissions;
+          user.totalEarnings = totalEarnings;
+          user.totalHours = totalHours;
+        } catch (statsError) {
+          console.warn('Erreur calcul statistiques prestataire:', statsError);
+          // Continuer sans les stats si erreur
+        }
+      }
     } else {
       console.log("[profile] Recherche dans User avec ID:", decoded.id);
       user = await User.findById(decoded.id).select("-password");
       console.log("[profile] User trouvé:", !!user);
     }
     
-    if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
+    if (!user) {
+      return res.status(404).json({ message: "Utilisateur non trouvé" });
+    }
+    
     res.json(user);
   } catch (error) {
-    res.status(401).json({ message: "Token invalide" });
+    console.error("Erreur profil:", error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: "Token invalide" });
+    }
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: "Token expiré" });
+    }
+    
+    res.status(500).json({ message: "Erreur serveur", error: error.message });
   }
 });
 
 router.get("/provider-profile", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
-  console.log("[provider-profile] Token reçu (50 premiers chars):", token?.substring(0, 50));
-  console.log("[provider-profile] Headers complets:", req.headers.authorization);
   
   if (!token) {
-    console.log("[provider-profile] ❌ Token manquant");
     return res.status(401).json({ message: "Token manquant" });
   }
 
   try {
-    console.log("[provider-profile] 🔓 Tentative de décodage du token...");
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log("[provider-profile] ✅ Token décodé:", decoded);
     
-    console.log("[provider-profile] 🔍 Recherche prestataire avec ID:", decoded.id);
-    console.log("[provider-profile] 🔍 Rôle dans le token:", decoded.role);
-    
-    const user = await Prestataire.findById(decoded.id).select("-password");
-    console.log("[provider-profile] 📋 Résultat recherche:", user ? 'TROUVÉ' : 'NON TROUVÉ');
-    
-    if (user) {
-      console.log("[provider-profile] 👤 Prestataire:", {
-        id: user._id,
-        nom: user.nom,
-        email: user.email,
-        role: user.role
-      });
-    }
+    let user = await Prestataire.findById(decoded.id).select("-password");
     
     if (!user) {
-      console.log("[provider-profile] ❌ Prestataire non trouvé pour id:", decoded.id);
       return res.status(404).json({ message: "Prestataire non trouvé" });
     }
     
-    console.log("[provider-profile] ✅ Envoi de la réponse");
+    // Calculer les statistiques réelles du prestataire
+    const Reservation = require('../models/Reservation');
+    
+    // Note moyenne réelle
+    const reservationsWithRating = await Reservation.find({
+      provider: decoded.id,
+      rating: { $exists: true, $ne: null }
+    });
+    
+    const averageRating = reservationsWithRating.length > 0 
+      ? (reservationsWithRating.reduce((sum, res) => sum + res.rating, 0) / reservationsWithRating.length).toFixed(1)
+      : null;
+    
+    // Missions terminées
+    const completedMissions = await Reservation.countDocuments({
+      provider: decoded.id,
+      status: { $in: ['terminée', 'completed'] }
+    });
+    
+    // Revenus totaux
+    const completedReservations = await Reservation.find({
+      provider: decoded.id,
+      status: { $in: ['terminée', 'completed'] },
+      paid: true
+    });
+    
+    const totalEarnings = completedReservations.reduce((sum, res) => sum + (res.partPrestataire || 0), 0);
+    
+    // Heures travaillées
+    const totalHours = completedMissions * 3;
+    
+    // Ajouter les statistiques à l'objet user
+    user = user.toObject();
+    user.averageRating = averageRating;
+    user.completedMissions = completedMissions;
+    user.totalEarnings = totalEarnings;
+    user.totalHours = totalHours;
+    
     res.json(user);
   } catch (error) {
-    console.log("[provider-profile] ❌ Erreur lors de la vérification du token:", {
-      message: error.message,
-      name: error.name,
-      stack: error.stack?.split('\n')[0]
-    });
+    console.error("Erreur provider-profile:", error);
     res.status(401).json({ message: "Token invalide", error: error.message });
   }
 });
@@ -263,5 +431,8 @@ router.put("/profile", async (req, res) => {
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
+
+// Route de déconnexion
+router.post("/logout", logout);
 
 module.exports = router;

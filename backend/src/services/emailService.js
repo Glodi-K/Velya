@@ -1,44 +1,94 @@
 const nodemailer = require("nodemailer");
+const Mailgun = require('mailgun.js');
+const FormData = require('form-data');
 
-// Vérification des variables d'environnement
-if ((!process.env.SMTP_USER || !process.env.SMTP_PASS) && process.env.NODE_ENV !== "test") {
-    console.error("❌ Erreur: Variables d'environnement SMTP_USER ou SMTP_PASS non définies !");
-    process.exit(1);
+// 🎯 Détermine quel service utiliser
+const USE_MAILGUN = process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN;
+const USE_GMAIL = process.env.EMAIL_USER && process.env.EMAIL_PASS;
+
+console.log(`📧 Service d'email configuré:`);
+console.log(`   Mailgun: ${USE_MAILGUN ? '✅' : '❌'}`);
+console.log(`   Gmail (fallback): ${USE_GMAIL ? '✅' : '❌'}`);
+
+// ===== MAILGUN =====
+let mgClient = null;
+if (USE_MAILGUN) {
+  const mailgun = new Mailgun(FormData);
+  mgClient = mailgun.client({
+    username: 'api',
+    key: process.env.MAILGUN_API_KEY,
+  });
 }
 
-// Création du transporteur sécurisé
-let transporter;
-
-try {
-    transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-        },
-    });
-
-    console.log("✅ Transporteur Nodemailer configuré avec succès !");
-} catch (error) {
-    console.error("❌ Erreur lors de la configuration du transporteur :", error);
+// ===== GMAIL FALLBACK =====
+let gmailTransporter = null;
+if (USE_GMAIL) {
+  gmailTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
 }
 
-// Fonction générique
+/**
+ * Envoie un email via Mailgun avec fallback Gmail
+ */
 const sendMail = async (to, subject, html) => {
-    const mailOptions = {
-        from: process.env.SMTP_USER,
+  const mailgunDomain = process.env.MAILGUN_DOMAIN || '';
+  const mailgunFromEmail = process.env.MAILGUN_FROM_EMAIL || '';
+  const gmailFromEmail = process.env.EMAIL_USER || '';
+
+  try {
+    console.log('📧 Tentative d\'envoi d\'email...');
+    console.log(`   À: ${to}`);
+    console.log(`   Sujet: ${subject}`);
+
+    // 1️⃣ Essayer Mailgun d'abord
+    if (USE_MAILGUN && mgClient && mailgunDomain && mailgunFromEmail) {
+      try {
+        const messageData = {
+          from: mailgunFromEmail,
+          to,
+          subject,
+          html,
+          'o:tracking': 'yes',
+          'o:tracking-opens': 'yes',
+        };
+
+        const result = await mgClient.messages.create(mailgunDomain, messageData);
+        console.log('✅ Email envoyé via Mailgun');
+        console.log(`   Message ID: ${result.id}`);
+        return true;
+      } catch (mailgunError) {
+        console.warn('⚠️ Erreur Mailgun:', mailgunError.message);
+        // Continuer au fallback Gmail
+      }
+    }
+
+    // 2️⃣ Fallback sur Gmail
+    if (USE_GMAIL && gmailTransporter && gmailFromEmail) {
+      const result = await gmailTransporter.sendMail({
+        from: gmailFromEmail,
         to,
         subject,
         html,
-    };
-    try {
-        await transporter.sendMail(mailOptions);
-        console.log("✅ Email envoyé avec succès :", subject);
-        return true;
-    } catch (error) {
-        console.error("❌ Erreur lors de l'envoi de l'email :", error);
-        return false;
+      });
+
+      console.log('✅ Email envoyé via Gmail (fallback)');
+      console.log(`   Message ID: ${result.messageId}`);
+      return true;
     }
+
+    // 3️⃣ Aucun service disponible
+    console.error('❌ Aucun service email configuré');
+    return false;
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'envoi d\'email:');
+    console.error(`   ${error.message}`);
+    return false;
+  }
 };
 
 // ✅ Fonction pour l'envoi du code 2FA
@@ -62,7 +112,7 @@ const sendReminderEmail = async (userEmail, reservation) => {
     const html = `<h2>Rappel de votre réservation</h2>
         <p>📅 Date : ${reservation.date}</p>
         <p>🧹 Service : ${reservation.service}</p>
-        <p>Assurez-vous d’être disponible à l’heure convenue.</p>`;
+        <p>Assurez-vous d'être disponible à l'heure convenue.</p>`;
     return await sendMail(userEmail, "⏳ Rappel : Votre service de ménage approche !", html);
 };
 
@@ -128,7 +178,7 @@ const sendMissionAcceptedEmail = async (userEmail, reservation, providerName) =>
         <p>Le prestataire va maintenant vous contacter pour organiser les détails et vous envoyer un devis.</p>
         <p>Vous pouvez suivre l'évolution de votre réservation dans votre dashboard.</p>
         <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard-client"
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3001'}/dashboard-client"
                style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
                 📊 Voir mon dashboard
             </a>
@@ -153,11 +203,11 @@ const sendMissionCompletedEmail = async (userEmail, reservation, providerName) =
         </div>
         <p>Nous espérons que vous êtes satisfait(e) du service rendu !</p>
         <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard-client"
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3001'}/dashboard-client"
                style="background-color: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; margin-right: 10px;">
                 ⭐ Laisser un avis
             </a>
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard-client"
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3001'}/dashboard-client"
                style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
                 📊 Voir mon dashboard
             </a>
@@ -166,6 +216,46 @@ const sendMissionCompletedEmail = async (userEmail, reservation, providerName) =
             Merci de faire confiance à Velya pour vos services de ménage !
         </p>`;
     return await sendMail(userEmail, "✅ Mission terminée - Merci pour votre confiance !", html);
+};
+
+// ✅ Fonction pour envoyer un rappel de paiement au client
+const sendPaymentReminder = async (userEmail, reservation) => {
+        const html = `<h2>Rappel : Paiement en attente</h2>
+                <p>Bonjour,</p>
+                <p>Nous vous rappelons que le paiement pour votre réservation du <strong>${reservation.date}</strong> (service : ${reservation.service}) est en attente.</p>
+                <p>Montant : <strong>${reservation.prixTotal ?? '—'}€</strong></p>
+                <p>Veuillez compléter le paiement depuis votre espace client afin que le prestataire puisse recevoir sa rémunération.</p>
+                <div style="margin-top:20px">
+                    <a href="${process.env.FRONTEND_URL || 'http://localhost:3001'}/reservations/${reservation._id}" style="background-color:#3b82f6;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Voir la réservation</a>
+                </div>
+                <p style="color:#6b7280;margin-top:12px">Si vous avez déjà payé, ignorez ce message.</p>`;
+        return await sendMail(userEmail, "🔔 Rappel : paiement en attente", html);
+};
+
+// ✅ Fonction pour envoyer un rappel de paiement au client (depuis le prestataire)
+const sendPaymentReminderEmail = async (userEmail, reservation, providerName) => {
+    const html = `<h2>💳 Rappel de paiement</h2>
+        <p>Bonjour,</p>
+        <p>Votre prestataire <strong>${providerName}</strong> vous rappelle que le paiement pour votre mission terminée est en attente.</p>
+        <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+            <h3 style="color: #92400e; margin-top: 0;">📋 Détails de la mission :</h3>
+            <p><strong>📅 Date :</strong> ${new Date(reservation.date).toLocaleDateString('fr-FR')}</p>
+            <p><strong>🕐 Heure :</strong> ${reservation.heure}</p>
+            <p><strong>🧹 Service :</strong> ${reservation.service || reservation.categorie}</p>
+            <p><strong>📍 Adresse :</strong> ${reservation.adresse}</p>
+            <p><strong>💰 Montant :</strong> ${reservation.prixTotal}€</p>
+        </div>
+        <p>Veuillez procéder au paiement depuis votre espace client afin que le prestataire puisse recevoir sa rémunération.</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3001'}/dashboard-client"
+               style="background-color: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                💳 Payer maintenant
+            </a>
+        </div>
+        <p style="color: #6b7280; font-size: 14px;">
+            Si vous avez déjà effectué le paiement, veuillez ignorer ce message.
+        </p>`;
+    return await sendMail(userEmail, "🔔 Rappel de paiement - Mission terminée", html);
 };
 
 // ✅ Exports
@@ -180,5 +270,7 @@ module.exports = {
     sendReservationReminder,
     sendMissionAcceptedEmail,
     sendMissionCompletedEmail,
+    sendPaymentReminder,
+    sendPaymentReminderEmail,
 };
 

@@ -36,7 +36,7 @@ async function closeDatabase() {
 // Configuration Socket.IO
 const io = new Server(server, { 
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001"],
+    origin: ["http://localhost:3001"],
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
@@ -49,6 +49,12 @@ app.set("io", io);
 // Gestion des connexions WebSocket
 io.on("connection", (socket) => {
   console.log("🟢 Utilisateur connecté :", socket.id);
+
+  // Rejoindre une room utilisateur pour les notifications
+  socket.on("join_user", (userId) => {
+    socket.join(`user_${userId}`);
+    console.log(`Utilisateur ${socket.id} a rejoint la room user_${userId}`);
+  });
 
   socket.on("join_conversation", (conversationId) => {
     socket.join(`conversation_${conversationId}`);
@@ -63,6 +69,13 @@ io.on("connection", (socket) => {
     console.log("🔴 Utilisateur déconnecté");
   });
 });
+
+// Fonction pour envoyer une notification en temps réel
+const sendRealtimeNotification = (userId, notification) => {
+  io.to(`user_${userId}`).emit("new_notification", notification);
+};
+
+app.set("sendRealtimeNotification", sendRealtimeNotification);
 
 // Démarrage du serveur
 const PORT = process.env.PORT || 5001;

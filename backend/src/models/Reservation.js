@@ -48,6 +48,8 @@ const reservationSchema = new mongoose.Schema({
   paymentSecurity: {
     clientPaid: { type: Boolean, default: false },
     clientPaymentId: { type: String },
+    clientAuthorized: { type: Boolean, default: false },
+    stripePaymentIntentId: { type: String },
     clientPaymentDate: { type: Date },
     providerPaid: { type: Boolean, default: false },
     providerPaymentId: { type: String },
@@ -71,6 +73,20 @@ const reservationSchema = new mongoose.Schema({
   paid: {
     type: Boolean,
     default: false,
+  },
+  paymentId: {
+    type: String,
+    required: false
+  },
+  paymentDate: {
+    type: Date,
+    required: false
+  },
+  paymentDetails: {
+    totalAmount: { type: Number },
+    applicationFee: { type: Number },
+    providerAmount: { type: Number },
+    currency: { type: String, default: 'eur' }
   },
 
   status: {
@@ -142,6 +158,24 @@ const reservationSchema = new mongoose.Schema({
   },
 
   serviceSpecifique: {
+    type: String,
+  },
+
+  // ✅ Système de notation
+  rating: {
+    type: Number,
+    min: 1,
+    max: 5,
+  },
+  comment: {
+    type: String,
+  },
+  ratedAt: {
+    type: Date,
+  },
+
+  // ✅ Google Calendar
+  googleCalendarEventId: {
     type: String,
   },
 
