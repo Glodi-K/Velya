@@ -34,9 +34,8 @@ services:
 
   - type: pserv
     name: velya-db
-    env: docker
+    image: mongo:6.0-alpine
     plan: free
-    dockerImage: mongo:6.0-alpine
     envVars:
       - key: MONGO_INITDB_ROOT_USERNAME
         value: admin
