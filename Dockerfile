@@ -35,7 +35,7 @@ COPY --from=frontend-builder /frontend/build ./frontend/build
 RUN apk add --no-cache nginx
 
 # Copier config nginx
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Créer utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
