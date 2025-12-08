@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: velya-backend
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        fromDatabase:
+          name: velya-db
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+    healthCheckPath: /api/health
+    
+  - type: web
+    name: velya-frontend
+    env: docker
+    dockerfilePath: ./frontend/Dockerfile
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://velya-backend.onrender.com
+      - key: REACT_APP_WEBSOCKET_URL
+        value: https://velya-backend.onrender.com
+      - key: REACT_APP_STRIPE_PUBLIC_KEY
+        sync: false
+      - key: CI
+        value: "false"
+
+  - type: pserv
+    name: velya-db
+    env: docker
+    plan: free
+    dockerImage: mongo:6.0-alpine
+    envVars:
+      - key: MONGO_INITDB_ROOT_USERNAME
+        value: admin
+      - key: MONGO_INITDB_ROOT_PASSWORD
+        sync: false
+      - key: MONGO_INITDB_DATABASE
+        value: velya
+    disk:
+      name: mongo-data
+      mountPath: /data/db
+      sizeGB: 1
