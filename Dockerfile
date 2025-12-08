@@ -9,9 +9,9 @@ RUN git clone https://github.com/Glodi-K/Velya.git . --depth 1
 
 WORKDIR /frontend/frontend
 
-RUN npm install
+RUN npm install --legacy-peer-deps
 
-RUN npm run build
+RUN CI=false npm run build
 
 # Stage 2: Build Backend
 FROM node:20-alpine AS backend-builder
