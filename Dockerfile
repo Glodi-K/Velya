@@ -5,7 +5,9 @@ WORKDIR /frontend
 
 RUN apk add --no-cache git
 
-RUN git clone https://github.com/Glodi-K/Velya-Frontend.git . || git clone https://github.com/Glodi-K/velya-frontend.git .
+RUN git clone https://github.com/Glodi-K/Velya.git . --depth 1
+
+WORKDIR /frontend/frontend
 
 RUN npm install
 
@@ -19,7 +21,7 @@ WORKDIR /backend
 COPY backend/package*.json ./
 
 RUN npm config set fetch-timeout 600000 && npm config set fetch-retries 10
-RUN npm install --production --no-audit
+RUN npm install --omit=dev --no-audit
 
 COPY backend . .
 
@@ -29,7 +31,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY --from=backend-builder /backend ./backend
-COPY --from=frontend-builder /frontend/build ./public
+COPY --from=frontend-builder /frontend/frontend/build ./public
 
 RUN apk add --no-cache nginx
 
