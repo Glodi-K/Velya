@@ -38,13 +38,13 @@ router.post(
   reservationController.createReservation
 );
 
-// ✅ Voir toutes les réservations (admin seulement)
-router.get("/", verifyToken, isAdmin, async (req, res) => {
+// ✅ Voir toutes les réservations (publique pour test mobile)
+router.get("/", async (req, res) => {
   try {
-    const reservations = await Reservation.find();
+    const reservations = await Reservation.find({}, 'status date adresse createdAt').limit(5);
     res.json({ message: "✅ Réservations récupérées", reservations });
   } catch (error) {
-    res.status(500).json({ message: "❌ Erreur serveur" });
+    res.status(500).json({ message: "❌ Erreur serveur", error: error.message });
   }
 });
 

@@ -60,6 +60,10 @@ const PrestataireSchema = new mongoose.Schema({
     type: String,
     required: false,
   },
+  profilePhoto: {
+    type: String,
+    required: false,
+  },
   service: {
     type: String,
     required: false,

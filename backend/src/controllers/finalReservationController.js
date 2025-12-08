@@ -4,6 +4,7 @@ const User = require("../models/User");
 const calculatePrice = require("../utils/calculatePrice");
 const sendEmail = require("../utils/sendEmail");
 const determineSaison = require("../utils/determineSaison");
+const getProviderName = require("../utils/getProviderName");
 const { sendPushNotification } = require("../services/notificationService");
 const { updateUserPreferences } = require("../services/userService");
 const PaymentSecurityService = require("../services/paymentSecurityService");
@@ -118,7 +119,7 @@ const createFinalReservation = async (req, res) => {
       reservation,
       provider: {
         id: provider._id,
-        name: provider.name,
+        name: getProviderName(provider),
         email: provider.email
       }
     });

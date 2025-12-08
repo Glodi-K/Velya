@@ -4,6 +4,7 @@ const User = require("../models/User");
 const calculatePrice = require("../utils/calculatePrice");
 const sendEmail = require("../utils/sendEmail");
 const determineSaison = require("../utils/determineSaison");
+const getProviderName = require("../utils/getProviderName");
 const { sendPushNotification } = require("../services/notificationService");
 const { updateUserPreferences, addFavoriteProvider } = require("../services/userService");
 const PaymentSecurityService = require("../services/paymentSecurityService");
@@ -127,6 +128,26 @@ const createReservation = async (req, res) => {
         `${typeService} - ${surface}m² à ${adresse} le ${new Date(date).toLocaleDateString('fr-FR')}`,
         'new_reservation'
       );
+      
+      // Envoyer email au prestataire
+      if (prestataire.email) {
+        try {
+          const emailService = require("../services/emailService");
+          const reservationData = {
+            date: reservation.date,
+            heure: reservation.heure,
+            service: reservation.service,
+            categorie: reservation.categorie,
+            adresse: reservation.adresse,
+            surface: reservation.surface
+          };
+          console.log('📧 Envoi email prestataire:', prestataire.email, reservationData);
+          const emailResult = await emailService.sendProviderNotification(prestataire.email, reservationData);
+          console.log("✅ Email envoyé au prestataire:", prestataire.email, "Résultat:", emailResult);
+        } catch (emailError) {
+          console.error("❌ Erreur email prestataire:", prestataire.email, emailError);
+        }
+      }
     }
 
     const io = req.app.get("io");
@@ -245,10 +266,12 @@ const getReservationsByUser = async (req, res) => {
 
 const getProviderHistory = async (req, res) => {
   try {
+    // Récupérer toutes les missions acceptées par le prestataire (peu importe le statut final)
+    // On exclut seulement les brouillons et les réservations non acceptées
     const reservations = await Reservation.find({
       provider: req.params.providerId,
-      status: "terminée",
-    });
+      status: { $in: ["acceptée", "en attente d'estimation", "en attente de devis", "confirmé", "terminée", "annulée"] }
+    }).sort({ date: -1 });
     res.status(200).json(reservations);
   } catch (error) {
     console.error("❌ Erreur getProviderHistory :", error);
@@ -264,17 +287,12 @@ const getUpcomingReservations = async (req, res) => {
     
     const allReservations = await Reservation.find({
       provider: req.params.providerId,
-      date: { $gte: today.toISOString() }
+      date: { $gte: today.toISOString() },
+      status: { $in: ['acceptée', 'en attente d\'estimation', 'en attente de devis', 'confirmé'] },
+      paid: { $ne: true } // Exclure les missions payées
     }).sort({ date: 1 });
     
-    // Filtrer pour exclure les missions terminées ET payées, ainsi que les annulées/refusées
-    const reservations = allReservations.filter(r => {
-      if (r.status === 'annulée' || r.status === 'refused') return false;
-      if (r.status === 'terminée' && r.paid === true) return false;
-      return true;
-    });
-    
-    res.status(200).json(reservations);
+    res.status(200).json(allReservations);
   } catch (error) {
     console.error("❌ Erreur récupération missions à venir :", error);
     res.status(500).json({ message: "Erreur serveur" });
@@ -295,8 +313,11 @@ const acceptReservation = async (req, res) => {
     }
 
     // Récupérer les informations du prestataire
-    const provider = await User.findById(req.user.id);
-    const providerName = provider ? provider.name : "Prestataire";
+    const provider = await Prestataire.findById(req.user.id);
+    const providerName = getProviderName(provider);
+    
+    // Sauvegarder le nom du prestataire dans la réservation
+    reservation.providerName = providerName;
 
     reservation.status = "en_attente_estimation";
     reservation.provider = req.user.id;
@@ -354,6 +375,27 @@ const acceptReservation = async (req, res) => {
         console.error("❌ Erreur lors de l'envoi de l'email de notification:", emailError);
         // Ne pas bloquer l'acceptation si l'email échoue
       }
+    }
+
+    // ✅ Envoyer un email au prestataire pour confirmer l'acceptation de la mission
+    // Utiliser l'email du prestataire - essayer provider.email en priorité, puis req.user.email
+    const providerEmail = provider?.email || req.user?.email;
+    
+    if (providerEmail) {
+      try {
+        const emailService = require("../services/emailService");
+        await emailService.sendProviderMissionAcceptedEmail(
+          providerEmail,
+          providerName,
+          reservation
+        );
+        console.log("✅ Email de confirmation envoyé au prestataire:", providerEmail);
+      } catch (emailError) {
+        console.error("❌ Erreur lors de l'envoi de l'email au prestataire:", emailError);
+        // Ne pas bloquer l'acceptation si l'email échoue
+      }
+    } else {
+      console.warn("⚠️ Email du prestataire introuvable - provider.email:", provider?.email, "req.user.email:", req.user?.email);
     }
 
     res.status(200).json({ 

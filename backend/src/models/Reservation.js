@@ -10,6 +10,9 @@ const reservationSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Prestataire',
   },
+  providerName: {
+    type: String,
+  },
 
   date: {
     type: String, // Date + heure combinées simplifiées

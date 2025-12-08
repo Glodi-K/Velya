@@ -6,6 +6,10 @@ const cors = require("cors");
 const path = require("path");
 const app = express();
 
+// Surveillance automatique des paiements
+require('./cron/paymentCron');
+console.log('✅ Surveillance automatique des paiements activée');
+
 // CORS: reflect the request origin and allow credentials (required when frontend uses withCredentials)
 app.use(cors({
   origin: function (origin, callback) {
@@ -16,7 +20,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cache-Control', 'Pragma'],
   optionsSuccessStatus: 200
 }));
 
@@ -26,6 +30,17 @@ app.options('*', cors({ origin: true, credentials: true }));
 // Add Vary: Origin header so caches handle responses per-origin
 app.use((req, res, next) => {
   res.header('Vary', 'Origin');
+  
+  // Headers anti-cache pour mobile
+  const userAgent = req.get('User-Agent') || '';
+  const isMobile = /Mobile|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+  
+  if (isMobile && req.url.includes('/api/')) {
+    res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.header('Pragma', 'no-cache');
+    res.header('Expires', '0');
+  }
+  
   next();
 });
 
@@ -44,20 +59,10 @@ require("./config/passportGoogle");
 // Middlewares
 const helmet = require("helmet");
 const morgan = require("morgan");
-const { mobileMiddleware, mobileErrorHandler } = require('./middleware/mobileMiddleware');
-
-// Middleware mobile (avant les routes)
-app.use(mobileMiddleware);
-
-
 
 // Servir les fichiers statiques
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
-
-
-
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
@@ -68,13 +73,13 @@ const providerRoutes = require("./routes/providerRoutes");
 const availabilityRoutes = require("./routes/availabilityRoutes");
 const stripeRoutes = require("./routes/stripeRoutes");
 const premiumRoutes = require("./routes/premiumRoutes");
-const testRoutes = require("./routes/testRoutes");
 const verificationRoutes = require("./routes/verificationRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const ratingRoutes = require("./routes/ratingRoutes");
 const earningsRoutes = require("./routes/earningsRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const profilePhotoRoutes = require("./routes/profilePhotoRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
@@ -88,7 +93,6 @@ app.post('/api/stripe/webhook', stripeWebhook);
 
 app.use("/api/stripe", stripeRoutes);
 app.use("/api/premium", premiumRoutes);
-app.use("/api/test", testRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
@@ -96,6 +100,8 @@ app.use("/api/ratings", ratingRoutes);
 app.use("/api/earnings", earningsRoutes);
 app.use("/api/reservations", paymentRoutes);
 app.use("/api/alerts", require('./routes/alertRoutes'));
+app.use("/api/payment-fix", require('./routes/paymentFixRoutes'));
+app.use("/api/profile-photos", profilePhotoRoutes);
 
 // Route de santé
 app.get("/api/health", (req, res) => {

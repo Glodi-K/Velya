@@ -123,9 +123,9 @@ router.get("/dashboard", verifyToken, isAdmin, async (req, res) => {
       { $group: { _id: null, total: { $sum: "$amount" } } }
     ]);
 
-    // Commissions de la plateforme (5%)
-    const totalCommissions = totalRevenue[0]?.total * 0.05 || 0;
-    const monthlyCommissions = monthlyRevenue[0]?.total * 0.05 || 0;
+    // Commissions de la plateforme (20%)
+    const totalCommissions = totalRevenue[0]?.total * 0.2 || 0;
+    const monthlyCommissions = monthlyRevenue[0]?.total * 0.2 || 0;
 
     // Taux d'annulation
     const cancelledReservations = await Reservation.countDocuments({ status: "annulée" });
@@ -475,32 +475,45 @@ router.delete("/providers/:id", verifyToken, isAdmin, async (req, res) => {
 // 💰 Rapports financiers
 router.get("/financial-reports", verifyToken, isAdmin, async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
-    const filter = {};
-    
-    if (startDate && endDate) {
-      filter.createdAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+    const { period = 'month' } = req.query;
+    const now = new Date();
+    let startDate;
+
+    switch (period) {
+      case 'week':
+        startDate = new Date(now.setDate(now.getDate() - 7));
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
     }
 
-    const payments = await PaymentLog.find({ ...filter, status: 'completed' })
-      .populate('reservation', 'client provider')
+    const payments = await PaymentLog.find({ 
+      createdAt: { $gte: startDate },
+      status: 'completed' 
+    })
+      .populate('reservation', 'client provider service')
       .sort({ createdAt: -1 });
 
-    const totalRevenue = payments.reduce((sum, payment) => sum + payment.amount, 0);
-    const totalCommissions = totalRevenue * 0.05;
+    const totalRevenue = payments.reduce((sum, payment) => sum + (payment.totalAmount || 0), 0);
+    const totalCommissions = totalRevenue * 0.2;
 
     res.json({
       payments,
       summary: {
         totalRevenue,
         totalCommissions,
-        paymentCount: payments.length
+        paymentCount: payments.length,
+        isTestMode: process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') || false
       }
     });
   } catch (error) {
+    console.error('❌ Erreur rapports financiers:', error);
     res.status(500).json({ message: "Erreur serveur" });
   }
 });

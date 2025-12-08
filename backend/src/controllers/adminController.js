@@ -104,3 +104,45 @@ exports.getAdminReport = async (req, res) => {
     res.status(500).json({ message: "Erreur lors de la génération du rapport" });
   }
 };
+
+// 💰 Récupérer les commissions de l'admin
+exports.getCommissions = async (req, res) => {
+  try {
+    const Admin = require('../models/Admin');
+    const PaymentLog = require('../models/PaymentLog');
+    
+    const adminUser = await Admin.findOne({ _id: req.user.id });
+    
+    if (!adminUser) {
+      return res.status(404).json({ message: "Admin non trouvé" });
+    }
+    
+    // Récupérer les logs de paiement pour calculer les commissions
+    const paymentLogs = await PaymentLog.find({})
+      .sort({ createdAt: -1 })
+      .limit(100);
+    
+    res.status(200).json({
+      admin: {
+        name: adminUser.name,
+        email: adminUser.email,
+        role: adminUser.role
+      },
+      commissions: {
+        totalCommissions: adminUser.totalCommissions || 0,
+        pendingCommissions: adminUser.pendingCommissions || 0,
+        withdrawnCommissions: adminUser.withdrawnCommissions || 0
+      },
+      recentPayments: paymentLogs.map(log => ({
+        date: log.createdAt,
+        amount: log.totalAmount,
+        commission: log.applicationFee,
+        status: log.status
+      }))
+    });
+  } catch (error) {
+    console.error("❌ Erreur récupération commissions admin:", error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+

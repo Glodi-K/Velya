@@ -260,7 +260,7 @@ router.patch("/:id/complete", verifyToken, async (req, res) => {
     if (reservation.client && reservation.client.email) {
       try {
         const { sendMissionCompletedEmail } = require("../services/emailService");
-        const providerName = reservation.provider ? reservation.provider.name : "Votre prestataire";
+        const providerName = reservation.providerName || (reservation.provider ? reservation.provider.name : "Votre prestataire");
         await sendMissionCompletedEmail(
           reservation.client.email,
           reservation,

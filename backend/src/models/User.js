@@ -88,6 +88,10 @@ const UserSchema = new mongoose.Schema({
     type: String,
     required: false,
   },
+  profilePhoto: {
+    type: String,
+    required: false,
+  },
 }, { timestamps: true }); // createdAt & updatedAt auto
 
 // ✅ Création du modèle
