@@ -6,15 +6,13 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: MONGO_URI
-        fromDatabase:
-          name: velya-db
-          property: connectionString
       - key: JWT_SECRET
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: MONGO_URI
         sync: false
     healthCheckPath: /api/health
     
@@ -31,20 +29,3 @@ services:
         sync: false
       - key: CI
         value: "false"
-
-  - type: pserv
-    name: velya-db
-    plan: free
-    runtime: image
-    image: mongo:6.0-alpine
-    envVars:
-      - key: MONGO_INITDB_ROOT_USERNAME
-        value: admin
-      - key: MONGO_INITDB_ROOT_PASSWORD
-        sync: false
-      - key: MONGO_INITDB_DATABASE
-        value: velya
-    disk:
-      name: mongo-data
-      mountPath: /data/db
-      sizeGB: 1
