@@ -34,10 +34,9 @@ services:
 
   - type: pserv
     name: velya-db
-    image:
-      name: mongo
-      tag: "6.0-alpine"
     plan: free
+    runtime: image
+    image: mongo:6.0-alpine
     envVars:
       - key: MONGO_INITDB_ROOT_USERNAME
         value: admin
