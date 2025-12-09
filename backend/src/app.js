@@ -117,9 +117,6 @@ app.use((req, res) => {
   res.status(404).json({ message: "Route introuvable" });
 });
 
-// Middleware de gestion d'erreurs mobile (avant le global)
-app.use(mobileErrorHandler);
-
 // Middleware de gestion d'erreurs global
 app.use((err, req, res, next) => {
   console.error('Erreur non gérée:', {
