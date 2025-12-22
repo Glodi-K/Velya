@@ -10,6 +10,14 @@ const getProviderName = require('../utils/getProviderName');
  * Crée une session de paiement Stripe Checkout
  */
 const createCheckoutSession = async (req, res) => {
+  // Check if Stripe is configured
+  if (!stripe) {
+    return res.status(503).json({
+      error: 'Stripe is not configured. Payment service unavailable.',
+      code: 'STRIPE_NOT_CONFIGURED'
+    });
+  }
+
   try {
     console.log('🔍 FRONTEND_URL:', process.env.FRONTEND_URL);
     const { reservationId } = req.body;

@@ -66,8 +66,6 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
-const emailVerificationRoutes = require("./routes/emailVerificationRoutes");
-const signupVerificationRoutes = require("./routes/signupVerificationRoutes");
 const userRoutes = require("./routes/userRoutes");
 const reservationRoutes = require("./routes/reservationRoutes_fixed");
 const finalReservationRoutes = require("./routes/finalReservationRoutes");
@@ -84,8 +82,6 @@ const paymentRoutes = require("./routes/paymentRoutes");
 const profilePhotoRoutes = require("./routes/profilePhotoRoutes");
 
 app.use("/api/auth", authRoutes);
-app.use("/api/auth", emailVerificationRoutes);
-app.use("/api/auth", signupVerificationRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/reservations", reservationRoutes);
 app.use("/api/final-reservations", finalReservationRoutes);
@@ -116,21 +112,10 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Route de test
-app.get("/api/test", (req, res) => {
-  res.status(200).json({ 
-    success: true, 
-    message: "✅ Serveur fonctionnel avec middlewares" 
-  });
-});
-
 // Middleware 404
 app.use((req, res) => {
   res.status(404).json({ message: "Route introuvable" });
 });
-
-// Middleware de gestion d'erreurs mobile (avant le global)
-// app.use(mobileErrorHandler); // Commenté temporairement
 
 // Middleware de gestion d'erreurs global
 app.use((err, req, res, next) => {

@@ -1,12 +1,14 @@
 // config/stripe.js
 // Initialise Stripe avec la clé secrète
 
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+let stripe;
 
-// Vérification que les clés Stripe sont configurées
-if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.includes('your_stripe')) {
-  console.error('⚠️ ERREUR: Clés Stripe non configurées dans .env');
-  console.error('Consultez STRIPE_LIVE_SETUP.md pour la configuration');
+if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('your_stripe')) {
+  stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+  console.log('✅ Stripe configuré');
+} else {
+  console.warn('⚠️ Stripe non configuré. Paiements désactivés.');
+  stripe = null;
 }
 
 // Configuration des webhooks pour la vérification de signature

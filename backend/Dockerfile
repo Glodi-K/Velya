@@ -7,8 +7,11 @@ WORKDIR /app
 # Copier les fichiers de dépendances
 COPY package*.json ./
 
-# Installer les dépendances
-RUN npm install --production
+# Configurer npm pour plus de patience
+RUN npm config set fetch-timeout 600000 && npm config set fetch-retries 10
+
+# Installer les dépendances avec plus de patience
+RUN npm install --production --no-audit
 
 # Copier le code source
 COPY . .

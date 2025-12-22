@@ -84,7 +84,7 @@ const sendRealtimeNotification = (userId, notification) => {
 app.set("sendRealtimeNotification", sendRealtimeNotification);
 
 // Démarrage du serveur
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || process.env.RAILWAY_PORT || 5001;
 const HOST = process.env.HOST || '0.0.0.0'; // Écouter sur toutes les interfaces
 
 connectDatabase().then(() => {
@@ -106,7 +106,9 @@ connectDatabase().then(() => {
     }
     
     console.log(`🚀 Serveur Velya Backend lancé sur http://${HOST}:${PORT}`);
-    console.log(`📡 Accessible depuis le réseau local sur http://${localIP}:${PORT}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`📡 Accessible depuis le réseau local sur http://${localIP}:${PORT}`);
+    }
   });
 }).catch(err => {
   console.error('❌ Erreur lors du démarrage:', err);

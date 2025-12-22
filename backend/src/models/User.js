@@ -50,7 +50,6 @@ const UserSchema = new mongoose.Schema({
   referralCode: {
     type: String,
     unique: true,
-    sparse: true, // Ignore les null dans l'index unique
   },
   referredBy: {
     type: String,
@@ -77,32 +76,6 @@ const UserSchema = new mongoose.Schema({
     type: Date,
   },
 
-  // 📧 Vérification d'email
-  emailVerified: {
-    type: Boolean,
-    default: false,
-  },
-  emailVerificationToken: {
-    type: String,
-    default: null,
-  },
-  emailVerificationExpires: {
-    type: Date,
-    default: null,
-  },
-  emailVerificationCode: {
-    type: String,
-    default: null,
-  },
-  emailVerificationCodeExpires: {
-    type: Date,
-    default: null,
-  },
-  pendingNewEmail: {
-    type: String,
-    default: null,
-  },
-
   phone: {
     type: String,
     required: false,
@@ -118,24 +91,6 @@ const UserSchema = new mongoose.Schema({
   profilePhoto: {
     type: String,
     required: false,
-  },
-
-  // 🏢 Données prestataire (si role === 'provider')
-  prestataireType: {
-    type: String,
-    enum: ['independant', 'entreprise', null],
-    default: null,
-  },
-  prestataireData: {
-    // Pour prestataire indépendant
-    prenom: String,
-    nom: String,
-    
-    // Pour prestataire entreprise
-    raisonSociale: String,
-    siret: String,
-    representantPrenom: String,
-    representantNom: String,
   },
 }, { timestamps: true }); // createdAt & updatedAt auto
 

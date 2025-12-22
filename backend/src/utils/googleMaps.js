@@ -1,52 +1,29 @@
-require('dotenv').config();
-
-const axios = require("axios");
-
-// Vérifier si la clé API est bien définie
-if (!process.env.GOOGLE_MAPS_API_KEY) {
-    console.error("❌ Clé API Google Maps non trouvée !");
-    throw new Error("❌ La clé API Google Maps n'est pas définie dans le fichier .env");
-} else {
-    console.log("✅ Clé API Google Maps détectée :", process.env.GOOGLE_MAPS_API_KEY);
+// Calcul de distance simple sans Google Maps API
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Rayon de la Terre en km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Distance en km
 }
 
-// Création du client Google Maps
-const googleMapsClient = axios.create({
-    baseURL: "https://maps.googleapis.com/maps/api/",
-    params: {
-        key: process.env.GOOGLE_MAPS_API_KEY,
-    },
-});
-
-/**
- * Obtenir la distance et le temps estimé entre deux points.
- * @param {string} origin - Adresse ou coordonnées de départ (ex: "48.8566,2.3522").
- * @param {string} destination - Adresse ou coordonnées d'arrivée (ex: "48.8566,2.295").
- * @param {string} mode - Mode de transport ("driving", "walking", "bicycling", "transit").
- * @returns {Promise<Object>} - Distance et durée du trajet.
- */
-async function getDistanceMatrix(origin, destination, mode = "driving") {
-    try {
-        const response = await googleMapsClient.get("distancematrix/json", {
-            params: {
-                origins: origin.toString(),
-                destinations: destination.toString(),
-                mode: mode,
-                units: "metric", // Utilisation du système métrique
-                language: "fr", // Réponse en français
-            },
-        });
-
-        if (response.data.status !== "OK") {
-            throw new Error(`❌ Erreur API Google Maps: ${response.data.error_message || response.data.status}`);
-        }
-
-        return response.data;
-    } catch (error) {
-        console.error("❌ Erreur Google Maps API:", error.response?.data || error.message);
-        throw new Error("Impossible d'obtenir les données de distance.");
-    }
+function getDistanceMatrix(origin, destination) {
+    const [originLat, originLon] = origin.split(',').map(Number);
+    const destinations = Array.isArray(destination) ? destination : [destination];
+    
+    const elements = destinations.map(dest => {
+        const [destLat, destLon] = dest.split(',').map(Number);
+        const distance = calculateDistance(originLat, originLon, destLat, destLon);
+        return {
+            distance: { value: distance * 1000, text: `${distance.toFixed(1)} km` },
+            duration: { value: Math.round(distance * 60), text: `${Math.round(distance)} min` }
+        };
+    });
+    
+    return { status: 'OK', rows: [{ elements }] };
 }
 
 module.exports = { getDistanceMatrix };
-
