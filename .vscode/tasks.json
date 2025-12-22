@@ -1,0 +1,51 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+
+      {
+        "label": "Lancer Backend",
+        "type": "shell",
+        "command": "npm run dev:backend",
+        "options": {
+          "cwd": "C:\\Dev\\Velya"
+        },
+        "problemMatcher": [],
+      },
+      {
+        "label": "Lancer Frontend",
+        "type": "shell",
+        "command": "npm start",
+        "options": {
+          "cwd": "C:\\Dev\\Velya\\frontend"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "Lancer MongoDB",
+        "type": "shell",
+        "command": "C:\\MongoDB\\bin\\mongod.exe --dbpath C:\\data\\db",
+        "problemMatcher": []
+      },
+      {
+        "label": "Lancer tout",
+        "dependsOrder": "parallel",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "dependsOn": [
+          "Lancer Backend",
+          "Lancer Frontend",
+          "Lancer MongoDB"
+        ],
+        "presentation": {
+          "echo": true,
+          "reveal": "always",
+          "focus": false,
+          "panel": "shared",
+          "showReuseMessage": false,
+          "clear": false
+        }
+      }
+    ]
+}
