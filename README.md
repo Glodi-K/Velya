@@ -65,14 +65,30 @@ npm run install:frontend
 
 ### Développement
 
-```bash
-# Démarrer tous les services en mode développement
-npm run dev
+#### 🔧 Démarrage Automatique (Recommandé)
+```powershell
+# Script de démarrage avec corrections automatiques
+.\start-fixed.ps1
+```
 
-# Ou démarrer individuellement
+#### 🛠️ Démarrage Manuel
+```bash
+# 1. Corriger la configuration réseau
+node scripts/fix-network.js
+
+# 2. Nettoyer les ports
+node scripts/kill-port.js 5001
+node scripts/kill-port.js 3001
+
+# 3. Démarrer les services
 npm run dev:backend    # Backend sur port 5001
 npm run dev:frontend   # Frontend sur port 3001
-npm run dev:ml         # Service ML sur port 5002
+```
+
+### 🔍 Diagnostic
+```bash
+# Vérifier la configuration système
+node scripts/diagnose.js
 ```
 
 ### Production
@@ -143,6 +159,46 @@ ML_SERVICE_URL=http://localhost:5002
 - [Backend API](./backend/README.md)
 - [Frontend](./frontend/README.md)
 - [Service ML](./ml-service/README.md)
+
+## 🚫 Dépannage
+
+### Problèmes de Connexion Réseau
+
+#### Erreur "Network Error" ou "ERR_CONNECTION_TIMED_OUT"
+```bash
+# 1. Diagnostic complet
+node scripts/diagnose.js
+
+# 2. Correction automatique
+node scripts/fix-network.js
+
+# 3. Redémarrage propre
+.\start-fixed.ps1
+```
+
+#### Erreur Socket.IO "timeout" ou "websocket error"
+```bash
+# Vérifier que le backend écoute sur toutes les interfaces
+# Le serveur doit afficher: "Accessible depuis le réseau local sur http://192.168.11.106:5001"
+
+# Si ce n'est pas le cas:
+node scripts/kill-port.js 5001
+npm run dev:backend
+```
+
+#### Ports déjà utilisés
+```bash
+# Nettoyer tous les ports
+node scripts/kill-port.js 3001
+node scripts/kill-port.js 5001
+node scripts/kill-port.js 27017
+```
+
+### Scripts Utiles
+- `node scripts/diagnose.js` - Diagnostic complet
+- `node scripts/fix-network.js` - Correction réseau
+- `node scripts/kill-port.js <port>` - Libérer un port
+- `.\start-fixed.ps1` - Démarrage avec corrections
 
 ## 🤝 Contribution
 

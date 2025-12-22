@@ -1,12 +1,15 @@
 // backend/server.js
-require("dotenv").config({ path: ".env" });
-
+// .env est déjà chargé par start-dev.js
 const app = require("./src/app");
 const mongoose = require("mongoose");
 const http = require("http");
 const { Server } = require("socket.io");
 const { Server: EngineIOServer } = require("engine.io");
 const cron = require("node-cron");
+const initializeUploadsDir = require("./src/utils/initializeUploadsDir");
+
+// Initialiser les dossiers d'uploads
+initializeUploadsDir();
 
 const server = http.createServer(app);
 
@@ -36,7 +39,10 @@ async function closeDatabase() {
 // Configuration Socket.IO
 const io = new Server(server, { 
   cors: {
-    origin: ["http://localhost:3001"],
+    origin: function(origin, callback) {
+      // Allow all origins in development
+      return callback(null, true);
+    },
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
@@ -79,10 +85,28 @@ app.set("sendRealtimeNotification", sendRealtimeNotification);
 
 // Démarrage du serveur
 const PORT = process.env.PORT || 5001;
+const HOST = process.env.HOST || '0.0.0.0'; // Écouter sur toutes les interfaces
 
 connectDatabase().then(() => {
-  server.listen(PORT, () => {
-    console.log(`🚀 Serveur Velya Backend lancé sur http://localhost:${PORT}`);
+  // Initialiser les dossiers d'uploads
+  initializeUploadsDir();
+  server.listen(PORT, HOST, () => {
+    const os = require('os');
+    const networkInterfaces = os.networkInterfaces();
+    let localIP = 'localhost';
+    
+    for (const interfaceName in networkInterfaces) {
+      const networkInterface = networkInterfaces[interfaceName];
+      for (const network of networkInterface) {
+        if (network.family === 'IPv4' && !network.internal && network.address.startsWith('192.168.')) {
+          localIP = network.address;
+          break;
+        }
+      }
+    }
+    
+    console.log(`🚀 Serveur Velya Backend lancé sur http://${HOST}:${PORT}`);
+    console.log(`📡 Accessible depuis le réseau local sur http://${localIP}:${PORT}`);
   });
 }).catch(err => {
   console.error('❌ Erreur lors du démarrage:', err);

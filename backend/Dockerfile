@@ -1,5 +1,5 @@
 # backend/Dockerfile
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Définir le répertoire de travail
 WORKDIR /app
@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Installer les dépendances
-RUN npm ci --only=production
+RUN npm install --production
 
 # Copier le code source
 COPY . .

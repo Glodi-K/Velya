@@ -79,3 +79,40 @@ exports.canRate = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+exports.getAverageRating = async (req, res) => {
+  try {
+    const { providerId } = req.params;
+
+    const ratings = await Rating.find({ provider: providerId });
+
+    const average = ratings.length > 0
+      ? (ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length).toFixed(1)
+      : 0;
+
+    res.json({
+      average: parseFloat(average),
+      total: ratings.length
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Récupérer la note pour une réservation spécifique
+exports.getReservationRating = async (req, res) => {
+  try {
+    const { reservationId } = req.params;
+
+    const rating = await Rating.findOne({ reservation: reservationId })
+      .populate('client', 'name');
+
+    if (!rating) {
+      return res.status(404).json({ message: 'Aucune note pour cette réservation' });
+    }
+
+    res.json({ rating });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

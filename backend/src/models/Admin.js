@@ -45,6 +45,19 @@ const AdminSchema = new mongoose.Schema({
   },
   avatar: {
     type: String
+  },
+  // 💰 Gains et commissions
+  totalCommissions: {
+    type: Number,
+    default: 0
+  },
+  pendingCommissions: {
+    type: Number,
+    default: 0
+  },
+  withdrawnCommissions: {
+    type: Number,
+    default: 0
   }
 }, { 
   timestamps: true 

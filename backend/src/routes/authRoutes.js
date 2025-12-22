@@ -164,9 +164,11 @@ router.post("/register-prestataire", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log('[LOGIN] Tentative de connexion avec email:', email);
     
     // Validation des champs requis
     if (!email || !password) {
+      console.log('[LOGIN] Email ou password manquant');
       return res.status(400).json({ message: "❌ Email et mot de passe requis" });
     }
     
@@ -231,9 +233,11 @@ router.post("/login", async (req, res) => {
       }
     }
 
+    console.log('[LOGIN] Email ou mot de passe incorrect');
     res.status(401).json({ message: "Email ou mot de passe incorrect" });
   } catch (err) {
-    console.error('🔥 Erreur login:', err);
+    console.error('🔥 Erreur login:', err.message);
+    console.error('🔥 Stack:', err.stack);
     res.status(500).json({ message: "Erreur serveur", error: err.message });
   }
 });
@@ -319,7 +323,20 @@ router.get("/profile", async (req, res) => {
       return res.status(404).json({ message: "Utilisateur non trouvé" });
     }
     
-    res.json(user);
+    // Ajouter le rôle à la réponse
+    const userObj = user.toObject ? user.toObject() : user;
+    userObj.role = decoded.role;
+    
+    // Convertir le chemin de photo en URL
+    if (userObj.profilePhoto) {
+      if (decoded.role === 'prestataire') {
+        userObj.profilePhoto = `/api/profile-photos/provider/${decoded.id}/file`;
+      } else {
+        userObj.profilePhoto = `/api/profile-photos/client/${decoded.id}/file`;
+      }
+    }
+    
+    res.json(userObj);
   } catch (error) {
     console.error("Erreur profil:", error);
     

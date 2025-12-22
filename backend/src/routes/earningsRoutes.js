@@ -59,8 +59,10 @@ router.get('/admin/summary', verifyToken, async (req, res) => {
       { $group: { _id: null, total: { $sum: "$totalAmount" } } }
     ]);
 
+    // Calculer les commissions basées sur les réservations payées
     const totalCommissions = await PaymentLog.aggregate([
-      { $group: { _id: null, total: { $sum: "$applicationFee" } } }
+      { $match: { status: "completed" } },
+      { $group: { _id: null, total: { $sum: { $multiply: ["$totalAmount", 0.2] } } } }
     ]);
 
     const totalProviderPayments = await PaymentLog.aggregate([

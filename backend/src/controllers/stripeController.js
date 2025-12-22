@@ -4,6 +4,7 @@
 const { stripe, paymentOptions } = require('../config/stripe');
 const Reservation = require('../models/Reservation');
 const User = require('../models/User');
+const getProviderName = require('../utils/getProviderName');
 
 /**
  * Crée une session de paiement Stripe Checkout
@@ -66,8 +67,8 @@ const createCheckoutSession = async (req, res) => {
 
     // Calculer les montants
     const amount = Math.round(reservation.prixTotal * 100); // Conversion en centimes
-    const applicationFee = Math.round(amount * 0.15); // 15% de commission pour l'application
-    const providerAmount = amount - applicationFee; // 85% pour le prestataire
+    const applicationFee = Math.round(amount * 0.20); // 20% de commission pour l'admin (Tarrification 3)
+    const providerAmount = amount - applicationFee; // 80% pour le prestataire
     
     let sessionOptions = {
       payment_method_types: ['card'],
@@ -85,8 +86,8 @@ const createCheckoutSession = async (req, res) => {
         },
       ],
       mode: 'payment',
-      success_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/dashboard-client?payment=success&reservation=${reservationId}`,
-      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/payment-cancel?reservation=${reservationId}`,
+      success_url: `http://localhost:3000/dashboard-client?payment=success&reservation=${reservationId}`,
+      cancel_url: `http://localhost:3000/payment-cancel?reservation=${reservationId}`,
       client_reference_id: reservationId,
       customer_email: reservation.client.email,
       metadata: {
@@ -151,7 +152,7 @@ const createPaymentIntent = async (req, res) => {
     
     // Calculer les montants
     const amount = Math.round(reservation.prixTotal * 100); // Conversion en centimes
-    const applicationFee = Math.round(amount * 0.15); // 15% de commission
+    const applicationFee = Math.round(amount * 0.20); // 20% de commission pour l'admin (Tarrification 3)
     
     let paymentIntentOptions = {
       amount,
@@ -205,13 +206,20 @@ const markReservationAsPaid = async (paymentIntentId) => {
     const providerAmount = parseInt(paymentIntent.metadata.providerAmount) || 0;
     
     // Mettre à jour la réservation avec les détails de paiement
+    const currentReservation = await Reservation.findById(paymentIntent.metadata.reservationId);
+    // Si "confirmé", devenir "terminée" au moment du paiement
+    let newStatus = currentReservation.status;
+    if (currentReservation.status === 'confirmé' || currentReservation.status === 'confirmed') {
+      newStatus = 'terminée';
+    }
+    
     const reservation = await Reservation.findByIdAndUpdate(
       paymentIntent.metadata.reservationId,
       { 
         paid: true,
         paymentId: paymentIntentId,
         paymentDate: new Date(),
-        status: 'confirmé',
+        status: newStatus,
         paymentDetails: {
           totalAmount: paymentIntent.amount,
           applicationFee: applicationFee,
@@ -231,6 +239,63 @@ const markReservationAsPaid = async (paymentIntentId) => {
     
     // Enregistrer la transaction pour comptabilité
     await recordPaymentTransaction(reservation, paymentIntent);
+    
+    // 💰 Créditer la commission de l'admin
+    try {
+      const Admin = require('../models/Admin');
+      // Récupérer le premier admin (super-admin)
+      const adminUser = await Admin.findOne({ role: 'super-admin' });
+      
+      if (adminUser) {
+        await Admin.findByIdAndUpdate(
+          adminUser._id,
+          { 
+            $inc: { 
+              totalCommissions: applicationFee / 100,
+              pendingCommissions: applicationFee / 100
+            }
+          }
+        );
+        console.log(`✅ Commission admin créditée: ${applicationFee/100}€`);
+      }
+    } catch (adminError) {
+      console.error('❌ Erreur lors de l\'ajout de la commission admin:', adminError);
+    }
+    
+    // 📧 Envoyer un email de confirmation au client
+    if (reservation.client && reservation.client.email) {
+      try {
+        const emailService = require("../services/emailService");
+        const providerName = getProviderName(reservation.provider);
+        await emailService.sendMail(
+          reservation.client.email,
+          "Paiement confirmé - Mission acceptée ✅",
+          `<h2>Paiement confirmé</h2>
+          <p>Merci ! Votre paiement de <strong>${paymentIntent.amount / 100}€</strong> a été confirmé.</p>
+          <div style="background-color: #f0fdf4; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10b981;">
+            <h3 style="color: #15803d; margin-top: 0;">Votre mission</h3>
+            <p><strong>Date :</strong> ${new Date(reservation.date).toLocaleDateString('fr-FR')}</p>
+            <p><strong>Heure :</strong> ${reservation.heure}</p>
+            <p><strong>Service :</strong> ${reservation.service || reservation.categorie}</p>
+            <p><strong>Prestataire :</strong> ${providerName}</p>
+            <p><strong>Montant payé :</strong> ${paymentIntent.amount / 100}€</p>
+          </div>
+          <p>Le prestataire a reçu la confirmation et peut commencer à préparer votre mission.</p>
+          <p>Vous recevrez un rappel 24 heures avant la date prévue.</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3001'}/dashboard-client"
+               style="background-color: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              Voir ma mission
+            </a>
+          </div>
+          <p style="color: #6b7280; font-size: 14px;">Merci de faire confiance à Velya !</p>`
+        );
+        console.log("✅ Email de confirmation de paiement envoyé au client:", reservation.client.email);
+      } catch (emailError) {
+        console.error("❌ Erreur lors de l'envoi de l'email de confirmation:", emailError);
+        // Ne pas bloquer si l'email échoue
+      }
+    }
     
     return reservation;
   } catch (error) {

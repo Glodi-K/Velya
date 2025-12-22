@@ -6,14 +6,28 @@ const { updateUserPreferences, addFavoriteProvider } = require("../services/user
 const cloudinary = require("../config/cloudinary");
 
 // ✅ Récupérer tous les utilisateurs
-exports.getUsers = (req, res) => {
-  res.json({ message: "Liste des utilisateurs" });
+exports.getUsers = async (req, res) => {
+  try {
+    const users = await User.find().select('-password');
+    res.json(users);
+  } catch (error) {
+    console.error('Erreur getUsers:', error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
 };
 
 // ✅ Récupérer un utilisateur par son ID
-exports.getUserById = (req, res) => {
-  const userId = req.params.id;
-  res.json({ message: `Utilisateur avec l'ID: ${userId}` });
+exports.getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: "Utilisateur non trouvé" });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error('Erreur getUserById:', error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
 };
 
 // ✅ Ajouter un prestataire favori (avec logs de débogage)

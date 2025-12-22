@@ -12,8 +12,8 @@ const { notifyProviderPayment } = require('../services/paymentNotificationServic
 const processPaymentTransfers = async (reservation, session) => {
   try {
     const totalAmount = session.amount_total; // en centimes
-    const applicationFee = Math.round(totalAmount * 0.15); // 15% commission
-    const providerAmount = totalAmount - applicationFee; // 85% pour le prestataire
+    const applicationFee = Math.round(totalAmount * 0.20); // 20% commission pour l'admin (Tarrification 3)
+    const providerAmount = totalAmount - applicationFee; // 80% pour le prestataire
     
     // Vérifier que le prestataire a un compte Stripe valide
     if (!reservation.provider?.stripeAccountId) {
@@ -76,7 +76,29 @@ const processPaymentTransfers = async (reservation, session) => {
       );
     }
     
-    console.log(`💰 Transfert traité - Commission: ${applicationFee/100}€, Prestataire: ${providerAmount/100}€`);
+    // 💰 Créditer la commission de l'admin
+    try {
+      const Admin = require('../models/Admin');
+      // Récupérer le premier admin (super-admin)
+      const adminUser = await Admin.findOne({ role: 'super-admin' });
+      
+      if (adminUser) {
+        await Admin.findByIdAndUpdate(
+          adminUser._id,
+          { 
+            $inc: { 
+              totalCommissions: applicationFee / 100,
+              pendingCommissions: process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ? applicationFee / 100 : 0
+            }
+          }
+        );
+        console.log(`✅ Commission admin créditée: ${applicationFee/100}€`);
+      }
+    } catch (adminError) {
+      console.error('❌ Erreur lors de l\'ajout de la commission admin:', adminError);
+    }
+    
+    console.log(`💰 Transfert traité - Commission admin: ${applicationFee/100}€, Prestataire: ${providerAmount/100}€`);
     
   } catch (error) {
     console.error('❌ Erreur traitement transferts:', error);
@@ -122,13 +144,26 @@ const handleStripeWebhook = async (req, res) => {
         if (reservationId) {
           // Marquer la réservation comme payée
           const Reservation = require('../models/Reservation');
+          
+          // Récupérer la réservation actuelle pour vérifier son statut
+          const currentReservation = await Reservation.findById(reservationId);
+          
+          // Logique: 
+          // - Si déjà "terminée", reste "terminée"
+          // - Si "confirmé" (service fini, attente de paiement), devient "terminée" 
+          // - Sinon, reste à son statut actuel
+          let newStatus = currentReservation.status;
+          if (currentReservation.status === 'confirmé' || currentReservation.status === 'confirmed') {
+            newStatus = 'terminée';
+          }
+          
           const reservation = await Reservation.findByIdAndUpdate(
             reservationId,
             { 
               paid: true,
               paymentId: session.id,
               paymentDate: new Date(),
-              status: 'confirmé',
+              status: newStatus,
               paymentDetails: {
                 sessionId: session.id,
                 paymentIntentId: session.payment_intent,

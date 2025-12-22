@@ -11,6 +11,16 @@ router.get('/test', (req, res) => {
     res.send("✅ Route test users fonctionne !");
 });
 
+// ✅ Route publique pour lister les utilisateurs (sans données sensibles)
+router.get('/', async (req, res) => {
+    try {
+        const users = await User.find({}, 'name email createdAt role').limit(10);
+        res.json({ message: "✅ Utilisateurs récupérés", users });
+    } catch (error) {
+        res.status(500).json({ message: "❌ Erreur de récupération", error: error.message });
+    }
+});
+
 // ✅ Routes utilisant le contrôleur
 router.get('/users', verifyToken, userController.getUsers); // 🔐 Protégé
 router.get('/users/:id', verifyToken, userController.getUserById); // 🔐 Protégé

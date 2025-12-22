@@ -71,7 +71,7 @@ const send2FACodeEmail = async (userEmail, code) => {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
-        <h2 style="margin: 0; font-size: 24px;">🔐 Vérification en deux étapes</h2>
+        <h2 style="margin: 0; font-size: 24px;">Vérification en deux étapes</h2>
       </div>
       <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
         <p>Votre code de vérification est:</p>
@@ -83,7 +83,7 @@ const send2FACodeEmail = async (userEmail, code) => {
       </div>
     </div>
   `;
-  return await sendMail(userEmail, '🔐 Votre code de vérification (10 min)', html);
+  return await sendMail(userEmail, 'Votre code de vérification (10 min)', html);
 };
 
 // ✅ Fonction pour confirmation de réservation
@@ -91,7 +91,7 @@ const sendReservationConfirmation = async (userEmail, reservation) => {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
-        <h2 style="margin: 0;">✅ Merci pour votre réservation !</h2>
+        <h2 style="margin: 0;">Merci pour votre réservation</h2>
       </div>
       <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
         <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea;">
@@ -105,7 +105,7 @@ const sendReservationConfirmation = async (userEmail, reservation) => {
       </div>
     </div>
   `;
-  return await sendMail(userEmail, '✅ Confirmation de votre réservation', html);
+  return await sendMail(userEmail, 'Confirmation de votre réservation', html);
 };
 
 // ✅ Fonction pour rappel de réservation
@@ -113,7 +113,7 @@ const sendReservationReminder = async (userEmail, reservation) => {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
-        <h2 style="margin: 0;">⏰ Rappel: Votre service de demain</h2>
+        <h2 style="margin: 0;">Rappel: Votre service de demain</h2>
       </div>
       <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
         <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #f5576c;">
@@ -126,7 +126,7 @@ const sendReservationReminder = async (userEmail, reservation) => {
       </div>
     </div>
   `;
-  return await sendMail(userEmail, '⏰ Rappel: Service demain', html);
+  return await sendMail(userEmail, 'Rappel: Service demain', html);
 };
 
 // ✅ Fonction pour annulation de réservation
@@ -134,7 +134,7 @@ const sendReservationCancellation = async (userEmail, reservation) => {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
-        <h2 style="margin: 0;">❌ Réservation annulée</h2>
+        <h2 style="margin: 0;">Réservation annulée</h2>
       </div>
       <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
         <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #f45c43;">
@@ -147,7 +147,7 @@ const sendReservationCancellation = async (userEmail, reservation) => {
       </div>
     </div>
   `;
-  return await sendMail(userEmail, '⚠️ Annulation de votre réservation', html);
+  return await sendMail(userEmail, 'Annulation de votre réservation', html);
 };
 
 // ✅ Fonction pour mission acceptée
@@ -155,7 +155,7 @@ const sendMissionAcceptedEmail = async (userEmail, reservation, providerName) =>
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
-        <h2 style="margin: 0;">🎉 Mission acceptée!</h2>
+        <h2 style="margin: 0;">Mission acceptée</h2>
       </div>
       <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
         <p>Bonne nouvelle! Un prestataire a accepté votre demande.</p>
@@ -171,7 +171,7 @@ const sendMissionAcceptedEmail = async (userEmail, reservation, providerName) =>
       </div>
     </div>
   `;
-  return await sendMail(userEmail, '✅ Votre mission a été acceptée!', html);
+  return await sendMail(userEmail, 'Votre mission a été acceptée', html);
 };
 
 // ✅ Fonction pour mission terminée
@@ -179,7 +179,7 @@ const sendMissionCompletedEmail = async (userEmail, reservation, providerName) =
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
-        <h2 style="margin: 0;">🎉 Mission terminée avec succès!</h2>
+        <h2 style="margin: 0;">Mission terminée avec succès</h2>
       </div>
       <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
         <p>Votre service de ménage a été terminé. Merci!</p>
@@ -193,7 +193,7 @@ const sendMissionCompletedEmail = async (userEmail, reservation, providerName) =
       </div>
     </div>
   `;
-  return await sendMail(userEmail, '✅ Mission terminée', html);
+  return await sendMail(userEmail, 'Mission terminée', html);
 };
 
 // ✅ Fonction pour rappel de paiement
@@ -201,7 +201,7 @@ const sendPaymentReminderEmail = async (userEmail, reservation, providerName) =>
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
-        <h2 style="margin: 0;">💳 Rappel: Paiement en attente</h2>
+        <h2 style="margin: 0;">Rappel: Paiement en attente</h2>
       </div>
       <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
         <p>Votre prestataire <strong>${providerName}</strong> vous rappelle que le paiement est en attente.</p>
@@ -214,7 +214,7 @@ const sendPaymentReminderEmail = async (userEmail, reservation, providerName) =>
       </div>
     </div>
   `;
-  return await sendMail(userEmail, '💳 Rappel: Paiement en attente', html);
+  return await sendMail(userEmail, 'Rappel: Paiement en attente', html);
 };
 
 // ✅ Fonction pour notification client (prestataire a accepté)
@@ -227,7 +227,7 @@ const sendProviderNotification = async (providerEmail, reservation) => {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 20px; border-radius: 8px 8px 0 0; color: #333;">
-        <h2 style="margin: 0;">📌 Nouvelle mission!</h2>
+        <h2 style="margin: 0;">Nouvelle mission</h2>
       </div>
       <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
         <p>Vous avez une nouvelle mission disponible!</p>
@@ -243,7 +243,7 @@ const sendProviderNotification = async (providerEmail, reservation) => {
       </div>
     </div>
   `;
-  return await sendMail(providerEmail, '📌 Nouvelle mission disponible', html);
+  return await sendMail(providerEmail, 'Nouvelle mission disponible', html);
 };
 
 // ✅ Fonction générique pour l'annulation
@@ -261,7 +261,7 @@ const sendPaymentReminder = async (userEmail, reservation) => {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
-        <h2 style="margin: 0;">🔔 Rappel: Paiement en attente</h2>
+        <h2 style="margin: 0;">Rappel: Paiement en attente</h2>
       </div>
       <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
         <p>Vous avez une réservation dont le paiement est en attente.</p>
@@ -274,7 +274,7 @@ const sendPaymentReminder = async (userEmail, reservation) => {
       </div>
     </div>
   `;
-  return await sendMail(userEmail, '🔔 Rappel: Paiement en attente', html);
+  return await sendMail(userEmail, 'Rappel: Paiement en attente', html);
 };
 
 // Exports

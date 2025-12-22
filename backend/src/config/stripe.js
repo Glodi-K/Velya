@@ -25,7 +25,7 @@ const paymentOptions = {
 // Configuration pour les transferts aux prestataires
 const transferOptions = {
   destination_charge_enabled: true,
-  connect_application_fee_percent: 15, // 15% de commission - standardisé dans toute l'application
+  connect_application_fee_percent: 20, // 20% de commission pour l'admin (Tarrification 3)
 };
 
 module.exports = {
