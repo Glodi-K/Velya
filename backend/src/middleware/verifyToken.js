@@ -8,6 +8,7 @@ const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.warn('⚠️ Token manquant ou format invalide:', { authHeader: authHeader ? 'présent' : 'absent', path: req.path });
       return res.status(401).json({ message: "⛔ Token manquant" });
     }
 
@@ -34,6 +35,7 @@ const verifyToken = async (req, res, next) => {
     }
     
     if (!user) {
+      console.warn('⚠️ Utilisateur introuvable:', { userId: decoded.id, role: decoded.role });
       return res.status(401).json({ message: "⛔ Utilisateur introuvable ou supprimé" });
     }
 

@@ -449,6 +449,50 @@ router.put("/profile", async (req, res) => {
   }
 });
 
+// Route de profil LÉGER (ultra-rapide) - pour LCP initial
+router.get("/profile/quick", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: "Token manquant ou format invalide" });
+    }
+    
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    if (!decoded || !decoded.id) {
+      return res.status(401).json({ message: "Token invalide" });
+    }
+    
+    // Retourner SEULEMENT ID + rôle (pas de DB queries)
+    res.json({
+      _id: decoded.id,
+      role: decoded.role,
+      name: decoded.name || 'Utilisateur'
+    });
+  } catch (error) {
+    console.error("Erreur profil quick:", error);
+    res.status(401).json({ message: "Token invalide ou expiré" });
+  }
+});
+
+// ===== ENDPOINT VÉRIFICATION TOKEN (pour auto-cleanup au boot) =====
+router.get("/verify-token", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.json({ valid: false });
+    }
+    
+    const token = authHeader.split(" ")[1];
+    jwt.verify(token, process.env.JWT_SECRET);
+    return res.json({ valid: true });
+  } catch (error) {
+    console.warn('⚠️ Token invalide:', error.message);
+    res.json({ valid: false });
+  }
+});
+
 // Route de déconnexion
 router.post("/logout", logout);
 

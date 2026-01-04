@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { generateToken } = require("../config/jwt");
+const { calculateCommissionInEuros } = require("../utils/commissionCalculator");
 const verifyToken = require("../middleware/verifyToken");
 const isAdmin = require("../middleware/isAdmin");
 const Admin = require("../models/Admin");
@@ -11,6 +12,7 @@ const User = require("../models/User");
 const Prestataire = require("../models/Prestataire");
 const AbuseReport = require("../models/AbuseReport");
 const PaymentLog = require("../models/PaymentLog");
+const { createAndSendNotification } = require("../utils/notificationHelper");
 
 // 🔐 Connexion admin
 router.post("/login", async (req, res) => {
@@ -63,6 +65,45 @@ router.get("/profile", verifyToken, isAdmin, async (req, res) => {
   }
 });
 
+// 💰 Commissions de l'admin
+router.get("/commissions", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.user.id);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin non trouvé" });
+    }
+
+    // Récupérer tous les paiements complétés
+    const payments = await PaymentLog.find({ status: 'completed' })
+      .populate('reservation', 'client provider service date prixTotal')
+      .sort({ createdAt: -1 });
+
+    const totalCommissions = payments.reduce((sum, payment) => sum + (payment.applicationFee || 0), 0);
+    const pendingCommissions = payments
+      .filter(p => !p.transferId || p.transferStatus === 'failed')
+      .reduce((sum, payment) => sum + (payment.applicationFee || 0), 0);
+
+    res.json({
+      admin: {
+        name: admin.name,
+        email: admin.email,
+        totalCommissions: admin.totalCommissions || 0,
+        pendingCommissions: admin.pendingCommissions || 0,
+        withdrawnCommissions: admin.withdrawnCommissions || 0
+      },
+      calculated: {
+        totalFromLogs: totalCommissions,
+        pendingFromLogs: pendingCommissions
+      },
+      paymentsCount: payments.length,
+      recentPayments: payments.slice(0, 10)
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération commissions:', error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+});
+
 // ✏️ Mise à jour profil admin
 router.put("/profile", verifyToken, isAdmin, async (req, res) => {
   try {
@@ -110,7 +151,7 @@ router.get("/dashboard", verifyToken, isAdmin, async (req, res) => {
     // Revenus et commissions
     const totalRevenue = await PaymentLog.aggregate([
       { $match: { status: "completed" } },
-      { $group: { _id: null, total: { $sum: "$amount" } } }
+      { $group: { _id: null, total: { $sum: "$totalAmount" } } }
     ]);
 
     const monthlyRevenue = await PaymentLog.aggregate([
@@ -120,12 +161,24 @@ router.get("/dashboard", verifyToken, isAdmin, async (req, res) => {
           createdAt: { $gte: startOfMonth }
         }
       },
-      { $group: { _id: null, total: { $sum: "$amount" } } }
+      { $group: { _id: null, total: { $sum: "$totalAmount" } } }
     ]);
 
-    // Commissions de la plateforme (20%)
-    const totalCommissions = totalRevenue[0]?.total * 0.2 || 0;
-    const monthlyCommissions = monthlyRevenue[0]?.total * 0.2 || 0;
+    // Commissions de la plateforme (déjà calculées dans applicationFee)
+    const totalCommissions = await PaymentLog.aggregate([
+      { $match: { status: "completed" } },
+      { $group: { _id: null, total: { $sum: "$applicationFee" } } }
+    ]);
+
+    const monthlyCommissions = await PaymentLog.aggregate([
+      { 
+        $match: { 
+          status: "completed",
+          createdAt: { $gte: startOfMonth }
+        }
+      },
+      { $group: { _id: null, total: { $sum: "$applicationFee" } } }
+    ]);
 
     // Taux d'annulation
     const cancelledReservations = await Reservation.countDocuments({ status: "annulée" });
@@ -163,8 +216,8 @@ router.get("/dashboard", verifyToken, isAdmin, async (req, res) => {
         monthlyReservations,
         totalRevenue: totalRevenue[0]?.total || 0,
         monthlyRevenue: monthlyRevenue[0]?.total || 0,
-        totalCommissions,
-        monthlyCommissions,
+        totalCommissions: totalCommissions[0]?.total || 0,
+        monthlyCommissions: monthlyCommissions[0]?.total || 0,
         cancellationRate: parseFloat(cancellationRate),
         recentReports
       },
@@ -222,6 +275,29 @@ router.patch("/providers/:id/approve", verifyToken, isAdmin, async (req, res) =>
       { new: true }
     );
 
+    // ✅ Créer une notification pour le prestataire
+    try {
+      if (approved) {
+        await createAndSendNotification(
+          req.app,
+          req.params.id,
+          '✅ Profil approuvé',
+          'Félicitations ! Votre profil a été approuvé. Vous pouvez maintenant accepter des missions.',
+          'system'
+        );
+      } else {
+        await createAndSendNotification(
+          req.app,
+          req.params.id,
+          '❌ Profil rejeté',
+          `Votre profil n'a pas été approuvé. Raison: ${reason || 'Non spécifiée'}`,
+          'system'
+        );
+      }
+    } catch (notificationError) {
+      console.error('Erreur lors de la création de la notification:', notificationError);
+    }
+
     res.json({ 
       message: approved ? "Prestataire approuvé" : "Prestataire rejeté", 
       provider 
@@ -245,6 +321,29 @@ router.patch("/providers/:id/suspend", verifyToken, isAdmin, async (req, res) =>
       },
       { new: true }
     );
+
+    // ✅ Créer une notification pour le prestataire
+    try {
+      if (suspended) {
+        await createAndSendNotification(
+          req.app,
+          req.params.id,
+          '⛔ Compte suspendu',
+          `Votre compte a été suspendu. Raison: ${reason || 'Non spécifiée'}. Contactez le support.`,
+          'system'
+        );
+      } else {
+        await createAndSendNotification(
+          req.app,
+          req.params.id,
+          '✅ Compte réactivé',
+          'Votre compte a été réactivé. Vous pouvez à nouveau accepter des missions.',
+          'system'
+        );
+      }
+    } catch (notificationError) {
+      console.error('Erreur lors de la création de la notification:', notificationError);
+    }
 
     res.json({ 
       message: suspended ? "Prestataire suspendu" : "Prestataire réactivé", 
@@ -356,7 +455,7 @@ router.get("/analytics", verifyToken, isAdmin, async (req, res) => {
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-          revenue: { $sum: "$amount" }
+          revenue: { $sum: "$totalAmount" }
         }
       },
       { $sort: { _id: 1 } }
@@ -425,6 +524,7 @@ router.get("/reservations", verifyToken, isAdmin, async (req, res) => {
     const reservations = await Reservation.find(filter)
       .populate("client", "name email")
       .populate("provider", "name email")
+      .select("+paymentId +paymentDate +paymentDetails +paymentSecurity +paid")
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
@@ -440,6 +540,7 @@ router.get("/reservations", verifyToken, isAdmin, async (req, res) => {
       }
     });
   } catch (error) {
+    console.error("❌ Erreur admin reservations:", error);
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
@@ -501,7 +602,7 @@ router.get("/financial-reports", verifyToken, isAdmin, async (req, res) => {
       .sort({ createdAt: -1 });
 
     const totalRevenue = payments.reduce((sum, payment) => sum + (payment.totalAmount || 0), 0);
-    const totalCommissions = totalRevenue * 0.2;
+    const { commission: totalCommissions } = calculateCommissionInEuros(totalRevenue);
 
     res.json({
       payments,

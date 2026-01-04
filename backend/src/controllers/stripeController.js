@@ -5,6 +5,7 @@ const { stripe, paymentOptions } = require('../config/stripe');
 const Reservation = require('../models/Reservation');
 const User = require('../models/User');
 const getProviderName = require('../utils/getProviderName');
+const { calculateCommissionInCents } = require('../utils/commissionCalculator');
 
 /**
  * Crée une session de paiement Stripe Checkout
@@ -75,8 +76,7 @@ const createCheckoutSession = async (req, res) => {
 
     // Calculer les montants
     const amount = Math.round(reservation.prixTotal * 100); // Conversion en centimes
-    const applicationFee = Math.round(amount * 0.20); // 20% de commission pour l'admin (Tarrification 3)
-    const providerAmount = amount - applicationFee; // 80% pour le prestataire
+    const { commission: applicationFee, providerAmount } = calculateCommissionInCents(amount);
     
     let sessionOptions = {
       payment_method_types: ['card'],
@@ -160,7 +160,7 @@ const createPaymentIntent = async (req, res) => {
     
     // Calculer les montants
     const amount = Math.round(reservation.prixTotal * 100); // Conversion en centimes
-    const applicationFee = Math.round(amount * 0.20); // 20% de commission pour l'admin (Tarrification 3)
+    const { commission: applicationFee, providerAmount } = calculateCommissionInCents(amount);
     
     let paymentIntentOptions = {
       amount,
@@ -172,7 +172,7 @@ const createPaymentIntent = async (req, res) => {
         reservationId: reservationId.toString(),
         service: reservation.categorie || reservation.service,
         applicationFee: applicationFee.toString(),
-        providerAmount: (amount - applicationFee).toString(),
+        providerAmount: providerAmount.toString(),
       },
     };
     

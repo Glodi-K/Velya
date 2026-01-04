@@ -4,34 +4,164 @@ require("dotenv").config({ path: "../.env" });
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const helmet = require("helmet");
+const morgan = require("morgan");
+const compression = require("compression");
+
+// ===== SENTRY - Initialiser AVANT tout le reste =====
+const Sentry = require("@sentry/node");
+const { nodeProfilingIntegration } = require("@sentry/profiling-node");
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    integrations: [
+      new Sentry.Integrations.Http({ tracing: true }),
+      new Sentry.Integrations.OnUncaughtException(),
+      new Sentry.Integrations.OnUnhandledRejection(),
+      nodeProfilingIntegration(),
+    ],
+    tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+    profilesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+  });
+  console.log('✅ Sentry initialisé');
+} else {
+  console.warn('⚠️ SENTRY_DSN non configuré, monitoring désactivé');
+}
+
 const app = express();
 
-// Surveillance automatique des paiements
-require('./cron/paymentCron');
-console.log('✅ Surveillance automatique des paiements activée');
+// ===== TRUST PROXY (requis pour rate-limiter avec X-Forwarded-For) =====
+app.set('trust proxy', 1); // Faire confiance au proxy (Nginx, Load Balancer, etc.)
 
-// CORS: reflect the request origin and allow credentials (required when frontend uses withCredentials)
+// Middleware Sentry pour les erreurs
+if (process.env.SENTRY_DSN) {
+  app.use(Sentry.Handlers.requestHandler());
+  app.use(Sentry.Handlers.tracingHandler());
+}
+
+// ===== MIDDLEWARES DE SÉCURITÉ =====
+
+// Helmet pour les headers de sécurité
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+    },
+  },
+  hsts: {
+    maxAge: 31536000, // 1 an
+    includeSubDomains: true,
+    preload: true,
+  },
+}));
+
+// Compression des réponses
+app.use(compression({
+  threshold: 1024, // Compresser seulement les réponses > 1KB
+  level: 6, // Compression level (1-9)
+}));
+
+// Morgan pour les logs
+const morganFormat = process.env.NODE_ENV === 'production' 
+  ? 'combined' 
+  : 'dev';
+app.use(morgan(morganFormat));
+
+// Rate limiting
+const {
+  generalLimiter,
+  authLimiter,
+  paymentLimiter,
+  uploadLimiter,
+  signupLimiter,
+} = require('./middleware/rateLimitMiddleware');
+
+// ⚠️ En DEV: limiter agressif bloque les tests avec trop de requêtes
+// COMPLÈTEMENT DÉSACTIVÉ EN DEV - utiliser NO-OP middleware
+const noOpLimiter = (req, res, next) => next();
+const limiterToUse = process.env.NODE_ENV === 'production' ? generalLimiter : noOpLimiter;
+app.use('/api/', limiterToUse);
+
+// ===== CACHE HEADERS MIDDLEWARE =====
+const cacheHeadersMiddleware = require('./middleware/cacheHeadersMiddleware');
+app.use(cacheHeadersMiddleware);
+
+// ===== CORS - DOIT ÊTRE AVANT CSRF =====
 app.use(cors({
   origin: function (origin, callback) {
-    // allow requests with no origin (like curl, mobile apps)
     if (!origin) return callback(null, true);
-    // In development we accept any origin; for production replace this with a whitelist check.
     return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cache-Control', 'Pragma'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cache-Control', 'Pragma', 'X-CSRF-Token'],
   optionsSuccessStatus: 200
 }));
 
-// Ensure preflight requests are handled by the cors middleware as well
+// Handle preflight requests AVANT CSRF
 app.options('*', cors({ origin: true, credentials: true }));
 
-// Add Vary: Origin header so caches handle responses per-origin
+// Middleware pour ignorer les preflight OPTIONS requests
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
+// ===== CSRF PROTECTION =====
+const cookieParser = require('cookie-parser');
+const session = require('express-session');
+const {
+  csrfProtection,
+  csrfTokenMiddleware,
+  csrfIgnore,
+  csrfTokenEndpoint,
+} = require('./middleware/csrfMiddleware');
+
+// Configuration de la session (requise pour CSRF)
+app.use(cookieParser(process.env.SESSION_SECRET || 'session-secret'));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'session-secret',
+  resave: false,
+  saveUninitialized: true,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production', // HTTPS only en production
+    httpOnly: true,
+    sameSite: 'strict',
+    maxAge: 24 * 60 * 60 * 1000, // 24 heures
+  },
+}));
+
+// Ajouter la protection CSRF après les parsers
+app.use(csrfIgnore);
+app.use(csrfTokenMiddleware);
+
+// ===== CACHE REDIS =====
+// DÉSACTIVÉ: Redis n'est pas installé localement, cause des crashes à répétition
+let cacheService = null;
+let redisClient = null;
+
+// Initialisation Redis commentée pour éviter les crashes
+// (async () => {
+//   try {
+//     const cache = require('./services/cacheService');
+//     redisClient = await cache.initializeRedis();
+//     cacheService = cache;
+//   } catch (error) {
+//     console.warn('⚠️ Cache non disponible:', error.message);
+//   }
+// })();
+
+// Headers personnalisés
 app.use((req, res, next) => {
   res.header('Vary', 'Origin');
   
-  // Headers anti-cache pour mobile
   const userAgent = req.get('User-Agent') || '';
   const isMobile = /Mobile|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
   
@@ -51,21 +181,21 @@ app.use('/api/stripe/webhook', express.raw({type: 'application/json'}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Passport
 const passport = require("passport");
 require("./config/passportGoogle");
-
-// Sentry désactivé temporairement
-
-// Middlewares
-const helmet = require("helmet");
-const morgan = require("morgan");
 
 // Servir les fichiers statiques
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Routes
+// ===== SURVEILLANCE DES PAIEMENTS =====
+require('./cron/paymentCron');
+console.log('✅ Surveillance automatique des paiements activée');
+
+// ===== ROUTES =====
 const authRoutes = require("./routes/authRoutes");
+const signupVerificationRoutes = require("./routes/signupVerificationRoutes");
 const userRoutes = require("./routes/userRoutes");
 const reservationRoutes = require("./routes/reservationRoutes_fixed");
 const finalReservationRoutes = require("./routes/finalReservationRoutes");
@@ -81,13 +211,43 @@ const earningsRoutes = require("./routes/earningsRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const profilePhotoRoutes = require("./routes/profilePhotoRoutes");
 
+// Appliquer rate limiting sur les routes sensibles
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/signup", signupLimiter);
+app.use("/api/stripe", paymentLimiter);
+app.use("/api/payments", paymentLimiter);
+app.use("/api/profile-photos", uploadLimiter);
+
+// ===== REDIS CACHING POUR LES ENDPOINTS LENTS =====
+// Cache les réponses GET pour les endpoints publics
+if (cacheService) {
+  // Providers - rarement modifiés, très accédés
+  app.use("/api/providers/", cacheService.cacheMiddleware(600)); // 10 min cache
+  
+  // Disponibilités - rarement modifiées
+  app.use("/api/availability/", cacheService.cacheMiddleware(300)); // 5 min cache
+  
+  // Utilisateurs publics - rarement modifiés
+  app.use("/api/users/profile", cacheService.cacheMiddleware(600)); // 10 min cache
+  
+  // Ratings - données statiques
+  app.use("/api/ratings/", cacheService.cacheMiddleware(1800)); // 30 min cache
+  
+  // Health check - ne change pas
+  app.use("/api/health", cacheService.cacheMiddleware(60)); // 1 min cache
+  
+  console.log('✅ Redis caching activé pour endpoints critiques');
+}
+
+// ===== ROUTES =====
 app.use("/api/auth", authRoutes);
+app.use("/api/auth", signupVerificationRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/reservations", reservationRoutes);
 app.use("/api/final-reservations", finalReservationRoutes);
 app.use("/api/providers", providerRoutes);
 app.use("/api/availability", availabilityRoutes);
-// Webhook Stripe avec raw body
+
 const stripeWebhook = require('./routes/stripeWebhook');
 app.post('/api/stripe/webhook', stripeWebhook);
 
@@ -103,51 +263,62 @@ app.use("/api/alerts", require('./routes/alertRoutes'));
 app.use("/api/payment-fix", require('./routes/paymentFixRoutes'));
 app.use("/api/profile-photos", profilePhotoRoutes);
 
-// Route de santé
-app.get("/api/health", (req, res) => {
-  res.status(200).json({ 
-    status: "OK", 
-    message: "Backend Velya opérationnel",
-    timestamp: new Date().toISOString()
-  });
+// ===== CSRF TOKEN ENDPOINT =====
+app.get("/api/csrf-token", csrfTokenEndpoint);
+
+// ===== HEALTH CHECKS =====
+const { getHealthStatus } = require('./services/healthService');
+const { getCircuitBreakerStatus } = require('./services/retryService');
+
+app.get("/api/health", async (req, res) => {
+  try {
+    const health = await getHealthStatus();
+    const statusCode = health.status === 'healthy' ? 200 : (health.status === 'degraded' ? 503 : 500);
+    res.status(statusCode).json(health);
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message,
+    });
+  }
 });
 
-// Middleware 404
-app.use((req, res) => {
-  res.status(404).json({ message: "Route introuvable" });
+app.get("/api/health/breakers", (req, res) => {
+  const status = getCircuitBreakerStatus();
+  res.json({ circuitBreakers: status });
 });
 
-// Middleware de gestion d'erreurs global
-app.use((err, req, res, next) => {
-  console.error('Erreur non gérée:', {
-    error: err.message,
-    stack: err.stack,
-    url: req.url,
-    method: req.method,
-    userAgent: req.get('User-Agent'),
-    timestamp: new Date().toISOString()
-  });
-  
-  // Ne pas exposer les détails de l'erreur en production
-  const isDev = process.env.NODE_ENV === 'development';
-  
-  res.status(err.status || 500).json({
-    message: err.message || 'Erreur serveur interne',
-    ...(isDev && { stack: err.stack })
-  });
-});
+// ===== ERREURS & 404 =====
+const {
+  notFoundHandler,
+  validationErrorHandler,
+  errorHandler,
+} = require('./middleware/errorHandler');
 
-// Gestion des rejets de promesses non gérées
+app.use(notFoundHandler);
+app.use(validationErrorHandler);
+
+// Sentry error handler (DOIT être après les autres handlers)
+if (process.env.SENTRY_DSN) {
+  app.use(Sentry.Handlers.errorHandler());
+}
+
+app.use(errorHandler);
+
+// ===== GESTION DES REJETS NON GÉRÉS =====
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('❌ Unhandled Rejection:', reason);
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(reason);
+  }
 });
 
-// Gestion des exceptions non capturées
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+  console.error('❌ Uncaught Exception:', error);
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(error);
+  }
   process.exit(1);
 });
-
-// Sentry désactivé
 
 module.exports = app;

@@ -1,0 +1,405 @@
+#!/usr/bin/env node
+/**
+ * 🚀 FIX CRITIQUES - Performance et Accessibilité
+ * 
+ * PROBLÈMES À RÉSOUDRE:
+ * 1. LCP = 10.7s (Score: 0%) → Besoin <2.5s
+ * 2. TBT = 1390ms (Score: 16%) → Besoin <300ms  
+ * 3. Accessibilité = 76% → Besoin 95%
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const FRONTEND_PATH = path.join(__dirname, '../frontend');
+const BACKEND_PATH = path.join(__dirname, '../backend');
+
+console.log(`
+╔════════════════════════════════════════════════════════════════════════╗
+║         🔧 FIXES CRITIQUES - PERFORMANCE & ACCESSIBILITÉ              ║
+║                                                                        ║
+║  Cible: Performance 90+ | Accessibilité 95+                           ║
+║  Estimation: 40-50 minutes pour tout fixer                            ║
+╚════════════════════════════════════════════════════════════════════════╝
+`);
+
+// ============================================================================
+// FIX #1: RÉDUIRE REACT TBT (Total Blocking Time) = 1390ms → <300ms
+// ============================================================================
+
+const tbfFixes = `
+╔════════════════════════════════════════════════════════════════════════╗
+║  FIX #1: Réduire TBT (Total Blocking Time) de 1390ms → <300ms         ║
+║  Impact: +30% performance score (passera de 16% à 85%+ pour TBT)      ║
+║  Temps estimé: 15 minutes                                              ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+📝 À FAIRE:
+
+1. Réduire React State Updates qui bloquent:
+   
+   Fichier: frontend/src/App.js (ou main component)
+   
+   ❌ AVANT (Bloque le thread):
+   ─────────────────────────────────────────
+   const [data, setData] = useState(null);
+   
+   useEffect(() => {
+     setData(largeDataSet);  // ← BLOQUANT
+   }, []);
+   
+   ✅ APRÈS (Non-bloquant):
+   ─────────────────────────────────────────
+   const [data, setData] = useState(null);
+   
+   useEffect(() => {
+     // Utiliser startTransition pour ne pas bloquer
+     startTransition(() => {
+       setData(largeDataSet);
+     });
+   }, []);
+   
+   Où: import { startTransition } from 'react';
+
+2. Dégager 3e party scripts non-essentiels:
+   
+   Actuellement chargé: Mixpanel, Sentry, Google Maps
+   
+   Solution: Charger APRÈS le premier render
+   
+   Fichier: frontend/src/App.js
+   
+   useEffect(() => {
+     // Charger Sentry APRÈS 500ms (TBT safe)
+     const timer = setTimeout(() => {
+       import('@sentry/react').then((...) => {});
+     }, 500);
+     return () => clearTimeout(timer);
+   }, []);
+
+3. Optimiser Maps API:
+   
+   ❌ Actuellement: Chargé de façon synchrone (async defer)
+   ✅ Nouveau: Charger SEULEMENT si page Maps nécessaire
+   
+   Fichier: frontend/public/index.html
+   
+   ❌ Avant:
+   <script async defer src="https://maps.googleapis.com/..."></script>
+   
+   ✅ Après:
+   <script id="google-maps" defer src="..." async></script>
+   <script>
+     // Charger SEULEMENT si TrackPage est accédée
+     if (window.location.pathname.includes('/track')) {
+       document.getElementById('google-maps').src = '...';
+     }
+   </script>
+
+═══════════════════════════════════════════════════════════════════════════
+`;
+
+// ============================================================================
+// FIX #2: RÉDUIRE LCP (Largest Contentful Paint) = 10.7s → <2.5s
+// ============================================================================
+
+const lcpFixes = `
+╔════════════════════════════════════════════════════════════════════════╗
+║  FIX #2: Réduire LCP de 10.7s → <2.5s                                 ║
+║  Impact: +25% performance score                                         ║
+║  Temps estimé: 15 minutes                                               ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+📝 À FAIRE:
+
+ÉTAPE 2a: Identifier l'élément LCP réel
+─────────────────────────────────────────
+1. Chrome DevTools → Lighthouse → "See opportunities"
+   Chercher "Avoid large layout shifts"
+   
+2. Ou: Chrome DevTools → Performance → Record → Look for largest element
+   L'élément bleu (LCP) apparaît à 10.7s
+
+ÉTAPE 2b: Optimiser l'API qui charge le contenu LCP
+─────────────────────────────────────────────────────
+
+La plupart du temps, LCP = 10.7s signifie:
+- API /api/providers prend 8-10 secondes
+- Ou API /api/user prend trop longtemps
+
+✅ Solution immédiate:
+
+1. Ajouter Cache Header sur Backend:
+   
+   Fichier: backend/src/app.js
+   
+   app.use((req, res, next) => {
+     res.set('Cache-Control', 'public, max-age=300'); // 5 minutes
+     next();
+   });
+
+2. Ajouter Compression aggressive:
+   
+   Fichier: backend/src/app.js
+   
+   const compression = require('compression');
+   app.use(compression({ level: 9 })); // Maximum compression
+
+3. Optimiser Database Query pour providers:
+   
+   Fichier: backend/src/controllers/prestataireController.js
+   
+   Actuellement: Charger TOUS les prestataires
+   Optimisé: Charger SEULEMENT 10 premiers + pagination
+   
+   ❌ Avant: db.find({}) // Tous les millions de docs
+   ✅ Après: db.find({}).limit(10) // Juste 10 premiers
+
+ÉTAPE 2c: Preload l'image LCP
+──────────────────────────────
+
+Fichier: frontend/public/index.html
+Ajouter avant </head>:
+
+<!-- Précharger l'image du hero (LCP element) -->
+<link rel="preload" as="image" href="/images/hero-home.jpg" media="(min-width: 0)">
+<link rel="preload" as="image" href="/images/hero-home.webp" media="(min-width: 0)">
+
+Gain: -1 à 2 secondes LCP
+
+═══════════════════════════════════════════════════════════════════════════
+`;
+
+// ============================================================================
+// FIX #3: ACCESSIBILITÉ = 76% → 95%
+// ============================================================================
+
+const a11yFixes = `
+╔════════════════════════════════════════════════════════════════════════╗
+║  FIX #3: Corriger Accessibilité (76% → 95%)                           ║
+║  Problèmes trouvés:                                                    ║
+║  1. Contraste couleur insuffisant (1 élément)                          ║
+║  2. Hiérarchie heading non-séquentielle (H2 sans H1?)                  ║
+║  Temps estimé: 10 minutes                                               ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+📝 À FAIRE:
+
+PROBLÈME #1: Contraste Couleur Insuffisant
+──────────────────────────────────────────
+
+1. Trouver l'élément problématique:
+   
+   Lighthouse Report → Accessibility → "Ensure text has sufficient color contrast"
+   Cliquez pour voir quel élément exact
+   
+   Peut être:
+   - Button text gris clair (#999999) sur background blanc
+   - Placeholder text léger
+   - Input borders trop subtils
+
+2. Fixer dans CSS:
+   
+   Fichier: frontend/src/index.css (ou Tailwind config)
+   
+   ❌ Avant (contraste insuffisant):
+   ──────────────────────────────
+   .button {
+     color: #999999;  /* Gris = 4.5:1 ratio insuffisant */
+   }
+   
+   ✅ Après (contraste WCAG AA):
+   ──────────────────────────────
+   .button {
+     color: #333333;  /* Gris foncé = 9.8:1 ratio ✓ */
+   }
+   
+   OU
+   
+   .button {
+     color: #000000;  /* Noir pur = 21:1 ratio ✓ */
+   }
+
+3. Tester le ratio de contraste:
+   
+   Utiliser: https://webaim.org/resources/contrastchecker/
+   Viser: Ratio >= 4.5:1 (WCAG AA normal text)
+          Ratio >= 3:1 (WCAG AA large text 14pt+)
+
+PROBLÈME #2: Hiérarchie Heading Non-Séquentielle
+─────────────────────────────────────────────────
+
+Lighthouse Report → Accessibility → "Heading elements are not in a sequentially descending order"
+
+Significa: Vous avez peut-être:
+   <h2>Titre Principal</h2>      ← WRONG! Doit être <h1>
+   <h3>Sous-titre</h3>
+   <h2>Autre section</h2>
+
+OU vous avez:
+   <h1>Titre</h1>
+   <h3>Sous-titre</h3>           ← WRONG! Manque <h2>
+   <h2>Autre section</h2>
+
+✅ FIX: Corriger la hiérarchie
+
+Pages à vérifier (par ordre de probabilité):
+1. HomePage.js
+2. AdminDashboard.js
+3. DashboardClient.js
+4. DashboardPrestataire.js
+
+Chercher tous les <h1>, <h2>, <h3> et vérifier l'ordre:
+- D'abord <h1> (une seule pour PageTitle)
+- Puis <h2> pour sections principales
+- Puis <h3> pour sous-sections
+- PAS de sauts (h1 → h3 sans h2)
+
+Exemple AVANT (hiérarchie cassée):
+──────────────────────────────────
+<h2>Bienvenue</h2>              ← WRONG! Pas de h1 d'abord
+<h3>Services</h3>
+<h3>Prix</h3>
+
+Exemple APRÈS (hiérarchie correcte):
+────────────────────────────────────
+<h1>Accueil</h1>                ← Titre principal
+<h2>Services</h2>               ← Section principale
+<h3>Nettoyage</h3>              ← Sous-section
+<h3>Repassage</h3>
+<h2>Prix</h2>                    ← Autre section principale
+<h3>Standard</h3>               ← Sous-section
+
+═══════════════════════════════════════════════════════════════════════════
+`;
+
+// ============================================================================
+// ÉTAPES D'EXÉCUTION
+// ============================================================================
+
+const executionSteps = `
+╔════════════════════════════════════════════════════════════════════════╗
+║                    ✅ ÉTAPES D'EXÉCUTION                              ║
+║                   (À faire dans cet ordre)                             ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+PHASE 1: ACCESSIBILITÉ (5 minutes - Rapide)
+─────────────────────────────────────────
+
+1. Ouvrir Lighthouse Report JSON:
+   c:/Dev/Velya/docs/localhost_3000-20251231T035126.json
+   
+2. Chercher "accessibility" → "issues"
+   Copier le texte exact de l'élément problématique
+   
+3. Éditer le fichier CSS correspondant:
+   ✅ Augmenter contraste (color: #333333 instead of #999999)
+   ✅ Fixer hiérarchie heading (h1 → h2 → h3 dans l'ordre)
+   
+4. Test rapide:
+   npm run build
+   Chrome → Lighthouse → Accessibility check
+
+PHASE 2: JAVASCRIPT TBT (15 minutes)
+──────────────────────────────────
+
+1. Éditer frontend/src/App.js:
+   ✅ Ajouter startTransition() pour state updates
+   ✅ Différer 3e party scripts (Sentry, Mixpanel)
+   
+2. Éditer frontend/public/index.html:
+   ✅ Charger Google Maps conditionnellement (pas toujours)
+   
+3. Test:
+   npm run build
+   Chrome → Lighthouse → Performance → Voir TBT
+
+PHASE 3: API / LCP (15 minutes)
+───────────────────────────
+
+1. Vérifier API response time:
+   node scripts/test-api-cache.js
+   
+   Si /api/providers prend 8+ secondes:
+   → Optimiser query (limit 10)
+   → Ajouter index MongoDB
+   
+2. Éditer backend/src/app.js:
+   ✅ Ajouter compression aggressive
+   ✅ Ajouter cache headers
+   
+3. Éditer frontend/public/index.html:
+   ✅ Preload image LCP
+   
+4. Test:
+   npm run build
+   Rebuild backend
+   Chrome → Lighthouse → Performance
+
+PHASE 4: REBUILD & RETEST (10 minutes)
+──────────────────────────────
+
+1. Build frontend:
+   cd frontend && npm run build && cd ..
+   
+2. Rebuild backend (si changé):
+   npm run dev:backend
+   
+3. Lighthouse test:
+   Chrome → Run Lighthouse
+   
+4. Comparer scores:
+   Avant: Performance 44%, Accessibilité 76%
+   Après: Performance 90+%, Accessibilité 95%?
+   
+   Si non atteint:
+   → Relancer Phase 2 (TBT plus agressif)
+   → Relancer Phase 3 (API plus rapide)
+
+═══════════════════════════════════════════════════════════════════════════
+
+📋 CHECKLIST À IMPRIMER:
+
+☐ Phase 1: Accessibilité
+  ☐ Identifier élément contraste insuffisant
+  ☐ Augmenter contrast ratio CSS
+  ☐ Vérifier hiérarchie heading
+  ☐ Test Lighthouse Accessibility
+
+☐ Phase 2: TBT  
+  ☐ Ajouter startTransition() App.js
+  ☐ Différer Sentry chargement
+  ☐ Différer Mixpanel chargement
+  ☐ Charger Google Maps conditionnellement
+  ☐ Test Lighthouse Performance (TBT)
+
+☐ Phase 3: LCP
+  ☐ Tester API response time
+  ☐ Optimiser query si lent
+  ☐ Ajouter compression backend
+  ☐ Ajouter preload image LCP
+  ☐ Test Lighthouse Performance (LCP)
+
+☐ Phase 4: Validation
+  ☐ npm run build (frontend)
+  ☐ Rebuild backend
+  ☐ Lighthouse test final
+  ☐ Comparer: 44% → 90+%?
+
+═══════════════════════════════════════════════════════════════════════════
+`;
+
+// Print all fixes
+console.log(tbfFixes);
+console.log(lcpFixes);
+console.log(a11yFixes);
+console.log(executionSteps);
+
+// Create summary file
+const summary = tbfFixes + '\n' + lcpFixes + '\n' + a11yFixes + '\n' + executionSteps;
+fs.writeFileSync(
+  path.join(__dirname, 'CRITICAL-FIXES-GUIDE.txt'),
+  summary
+);
+
+console.log(`\n✅ Guide complet sauvegardé: scripts/CRITICAL-FIXES-GUIDE.txt`);

@@ -133,16 +133,8 @@ const createReservation = async (req, res) => {
       if (prestataire.email) {
         try {
           const emailService = require("../services/emailService");
-          const reservationData = {
-            date: reservation.date,
-            heure: reservation.heure,
-            service: reservation.service,
-            categorie: reservation.categorie,
-            adresse: reservation.adresse,
-            surface: reservation.surface
-          };
-          console.log('📧 Envoi email prestataire:', prestataire.email, reservationData);
-          const emailResult = await emailService.sendProviderNotification(prestataire.email, reservationData);
+          console.log('📧 Envoi email prestataire:', prestataire.email);
+          const emailResult = await emailService.sendProviderNotification(prestataire.email, reservation);
           console.log("✅ Email envoyé au prestataire:", prestataire.email, "Résultat:", emailResult);
         } catch (emailError) {
           console.error("❌ Erreur email prestataire:", prestataire.email, emailError);
@@ -357,7 +349,18 @@ const acceptReservation = async (req, res) => {
         reservation.client._id,
         '✅ Mission acceptée !',
         `${providerName} a accepté votre mission du ${new Date(reservation.date).toLocaleDateString('fr-FR')}`,
-        'mission_accepted'
+        'mission'
+      );
+    }
+
+    // ✅ Créer une notification pour le prestataire
+    if (req.user && req.user.id) {
+      await createAndSendNotification(
+        req.app,
+        req.user.id,
+        '✅ Mission acceptée !',
+        `Vous avez accepté la mission du ${new Date(reservation.date).toLocaleDateString('fr-FR')} pour ${reservation.client?.name || 'un client'}`,
+        'mission'
       );
     }
 
@@ -367,6 +370,7 @@ const acceptReservation = async (req, res) => {
         const emailService = require("../services/emailService");
         await emailService.sendMissionAcceptedEmail(
           reservation.client.email,
+          reservation.client.name,
           reservation,
           providerName
         );
@@ -417,6 +421,18 @@ const refuseReservation = async (req, res) => {
       { new: true }
     ).populate('client');
     if (!reservation) return res.status(404).json({ message: "Réservation introuvable" });
+    
+    // ✅ Créer une notification pour le client
+    if (reservation.client && reservation.client._id) {
+      const { createAndSendNotification } = require('../utils/notificationHelper');
+      await createAndSendNotification(
+        req.app,
+        reservation.client._id,
+        '❌ Mission refusée',
+        `Votre demande de mission du ${new Date(reservation.date).toLocaleDateString('fr-FR')} a été refusée`,
+        'mission'
+      );
+    }
     
     // ✅ Émettre événement Socket.IO
     const io = req.app.get("io");

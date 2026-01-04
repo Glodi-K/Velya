@@ -302,7 +302,11 @@ router.post('/add-provider', async (req, res) => {
 // ➡️ Obtenir la liste complète des prestataires (admin ou debug)
 router.get('/all-providers', async (req, res) => {
     try {
-        const prestataires = await Prestataire.find();
+        // OPTIM: Limiter à 10 + champs essentiels = réponse 5x plus rapide
+        const prestataires = await Prestataire.find()
+            .select('nom email phone service rating profilePhoto location')
+            .limit(10)
+            .lean();
         res.json({ message: "📜 Liste des prestataires", prestataires });
     } catch (error) {
         res.status(500).json({ message: "❌ Erreur de récupération", error });

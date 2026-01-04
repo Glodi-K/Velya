@@ -2,6 +2,7 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const User = require('../models/User');
 const Reservation = require('../models/Reservation');
+const { createAndSendNotification } = require('../utils/notificationHelper');
 
 /**
  * Créer ou récupérer une conversation
@@ -117,6 +118,23 @@ const sendMessage = async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       io.to(`conversation_${conversationId}`).emit('new_message', message);
+    }
+
+    // ✅ Créer une notification pour le destinataire
+    try {
+      const recipientId = conversation.participants.find(p => p.toString() !== userId);
+      if (recipientId) {
+        const senderName = (await User.findById(userId).select('name')) || { name: 'Quelqu\'un' };
+        await createAndSendNotification(
+          req.app,
+          recipientId,
+          '💬 Nouveau message',
+          `${senderName.name} vous a envoyé un message: "${content.substring(0, 30)}${content.length > 30 ? '...' : ''}"`,
+          'message'
+        );
+      }
+    } catch (notificationError) {
+      console.error('Erreur lors de la création de la notification de message:', notificationError);
     }
 
     res.status(201).json({ message });

@@ -33,6 +33,21 @@ exports.createRating = async (req, res) => {
       comment
     });
 
+    // ✅ Créer une notification pour le prestataire
+    try {
+      const { createAndSendNotification } = require('../utils/notificationHelper');
+      const emoji = rating >= 4 ? '⭐' : rating >= 3 ? '👍' : '📝';
+      await createAndSendNotification(
+        req.app,
+        reservation.provider,
+        `${emoji} Nouvel avis de ${rating}/5`,
+        `Vous avez reçu un nouvel avis : ${comment || '(Sans commentaire)'}`,
+        'message'
+      );
+    } catch (notificationError) {
+      console.error('Erreur lors de la création de la notification d\'avis:', notificationError);
+    }
+
     res.status(201).json(newRating);
   } catch (error) {
     res.status(500).json({ message: error.message });

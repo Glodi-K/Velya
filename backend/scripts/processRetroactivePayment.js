@@ -3,6 +3,7 @@ const Reservation = require('../src/models/Reservation');
 const PaymentLog = require('../src/models/PaymentLog');
 const PrestataireSimple = require('../src/models/PrestataireSimple');
 const User = require('../src/models/User');
+const { calculateCommissionInEuros } = require('../src/utils/commissionCalculator');
 require('dotenv').config();
 
 // Enregistrer le modèle Prestataire pour éviter l'erreur
@@ -58,8 +59,7 @@ async function processRetroactivePayment(reservationId) {
 
     // Calculer les montants
     const totalAmount = reservation.prixTotal;
-    const applicationFee = Math.round(totalAmount * 0.20 * 100) / 100; // 20% commission pour l'admin (Tarrification 3)
-    const providerAmount = Math.round((totalAmount - applicationFee) * 100) / 100; // 80% pour le prestataire
+    const { commission: applicationFee, providerAmount } = calculateCommissionInEuros(totalAmount);
 
     console.log(`💰 Répartition des montants:`);
     console.log(`   Montant total: ${totalAmount}€`);

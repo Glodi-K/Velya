@@ -3,6 +3,7 @@
 
 const Reservation = require('../models/Reservation');
 const { stripe } = require('../config/stripe');
+const { calculateCommissionInCents } = require('../utils/commissionCalculator');
 
 class PaymentSecurityService {
   
@@ -113,8 +114,7 @@ class PaymentSecurityService {
 
       // Calculer les montants
       const totalAmount = reservation.prixTotal * 100; // en centimes
-      const commission = Math.round(totalAmount * 0.2); // 20% commission
-      const providerAmount = totalAmount - commission;
+      const { commission, providerAmount } = calculateCommissionInCents(totalAmount);
 
       // Effectuer le transfert vers le prestataire
       const transfer = await stripe.transfers.create({
@@ -131,7 +131,7 @@ class PaymentSecurityService {
       reservation.paymentSecurity.providerPaid = true;
       reservation.paymentSecurity.providerPaymentId = transfer.id;
       reservation.paymentSecurity.providerPaymentDate = new Date();
-      reservation.paymentSecurity.commission = commission;
+      reservation.paymentSecurity.commission = commission / 100; // Stocker en euros
       reservation.paymentSecurity.commissionPaid = true;
 
       await reservation.save();

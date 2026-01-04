@@ -1,6 +1,7 @@
 const PremiumSubscription = require('../models/PremiumSubscription');
 const User = require('../models/User');
 const { stripe } = require('../config/stripe');
+const { createAndSendNotification } = require('../utils/notificationHelper');
 
 // Prix des abonnements (en centimes)
 const SUBSCRIPTION_PRICES = {
@@ -160,7 +161,21 @@ const createSubscription = async (req, res) => {
       console.error('Erreur lors de la mise à jour du statut Premium:', updateError);
       // Continuer malgré l'erreur pour le développement
     }
-    
+
+    // ✅ Créer une notification pour l'utilisateur
+    try {
+      const planName = userRole === 'prestataire' ? '🎯 Premium Prestataire' : '⭐ Premium Client';
+      await createAndSendNotification(
+        req.app,
+        userId,
+        planName,
+        'Bienvenue dans le programme Premium ! Profitez de tous les avantages exclusifs.',
+        'system'
+      );
+    } catch (notificationError) {
+      console.error('Erreur lors de la création de la notification Premium:', notificationError);
+    }
+
     res.status(201).json({
       message: "Abonnement Premium créé avec succès",
       subscription: premiumSubscription,
@@ -250,7 +265,20 @@ const cancelSubscription = async (req, res) => {
     // Mettre à jour l'abonnement local
     subscription.cancelAtPeriodEnd = true;
     await subscription.save();
-    
+
+    // ✅ Créer une notification pour l'utilisateur
+    try {
+      await createAndSendNotification(
+        req.app,
+        userId,
+        '⏰ Abonnement Premium annulé',
+        `Votre abonnement Premium sera annulé à la fin de la période en cours le ${new Date(subscription.currentPeriodEnd).toLocaleDateString('fr-FR')}`,
+        'system'
+      );
+    } catch (notificationError) {
+      console.error('Erreur lors de la création de la notification d\'annulation:', notificationError);
+    }
+
     res.status(200).json({
       message: "Abonnement Premium annulé avec succès",
       subscription

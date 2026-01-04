@@ -6,7 +6,15 @@ const createAndSendNotification = async (app, userId, title, message, type = 'sy
   try {
     // Déterminer le type d'utilisateur
     let userModel = 'User';
-    const isProvider = await Prestataire.findById(userId);
+    
+    // Chercher dans PrestataireSimple d'abord
+    let isProvider = await Prestataire.findById(userId);
+    if (!isProvider) {
+      // Chercher dans le modèle Prestataire complet
+      const PrestataireComplet = require('../models/Prestataire');
+      isProvider = await PrestataireComplet.findById(userId);
+    }
+    
     if (isProvider) {
       userModel = 'Prestataire';
     }

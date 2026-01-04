@@ -5,6 +5,7 @@ const express = require('express');
 const { stripe, endpointSecret } = require('../config/stripe');
 const { markReservationAsPaid } = require('../controllers/stripeController');
 const { notifyProviderPayment } = require('../services/paymentNotificationService');
+const { calculateCommissionInCents } = require('../utils/commissionCalculator');
 
 /**
  * Traite les transferts d'argent après un paiement réussi
@@ -12,8 +13,7 @@ const { notifyProviderPayment } = require('../services/paymentNotificationServic
 const processPaymentTransfers = async (reservation, session) => {
   try {
     const totalAmount = session.amount_total; // en centimes
-    const applicationFee = Math.round(totalAmount * 0.20); // 20% commission pour l'admin (Tarrification 3)
-    const providerAmount = totalAmount - applicationFee; // 80% pour le prestataire
+    const { commission: applicationFee, providerAmount } = calculateCommissionInCents(totalAmount);
     
     // Vérifier que le prestataire a un compte Stripe valide
     if (!reservation.provider?.stripeAccountId) {
@@ -182,7 +182,7 @@ const handleStripeWebhook = async (req, res) => {
           // Notifier le prestataire du paiement
           if (reservation && reservation.provider) {
             try {
-              await notifyProviderPayment(reservation);
+              await notifyProviderPayment(req.app, reservation);
               console.log(`✅ Prestataire ${reservation.provider.name} notifié du paiement`);
             } catch (notifError) {
               console.error('❌ Erreur notification prestataire:', notifError);

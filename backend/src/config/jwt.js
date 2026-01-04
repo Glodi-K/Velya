@@ -2,7 +2,7 @@
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'defaultSecret';
-const JWT_EXPIRES_IN = '1h'; // 🕒 Durée de validité du token standard
+const JWT_EXPIRES_IN = process.env.NODE_ENV === 'production' ? '1h' : '8h'; // 🕒 8h en dev, 1h en prod
 const JWT_ADMIN_EXPIRES_IN = '24h'; // 🕒 Durée de validité du token admin (24h)
 const JWT_PROVIDER_EXPIRES_IN = '8h'; // 🕒 Durée de validité du token prestataire (8h)
 

@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const crypto = require('crypto');
+const { createAndSendNotification } = require('../utils/notificationHelper');
 
 // Configuration du programme de parrainage
 const REFERRAL_CONFIG = {
@@ -103,6 +104,32 @@ const applyReferralCode = async (req, res) => {
     // Ajouter des crédits au filleul
     user.referralRewards = (user.referralRewards || 0) + REFERRAL_CONFIG.REFERRED_REWARD;
     await user.save();
+
+    // ✅ Créer une notification pour le filleul
+    try {
+      await createAndSendNotification(
+        req.app,
+        userId,
+        '🎁 Bienvenue avec le code de parrainage',
+        `Vous avez reçu ${REFERRAL_CONFIG.REFERRED_REWARD} crédits de réduction de ${REFERRAL_CONFIG.REFERRED_DISCOUNT}% !`,
+        'system'
+      );
+    } catch (notificationError) {
+      console.error('Erreur lors de la création de la notification filleul:', notificationError);
+    }
+
+    // ✅ Créer une notification pour le parrain
+    try {
+      await createAndSendNotification(
+        req.app,
+        referrer._id,
+        '🎉 Nouveau filleul',
+        `Quelqu'un a utilisé votre code de parrainage ! Vous avez reçu ${REFERRAL_CONFIG.REFERRER_REWARD} crédits.`,
+        'system'
+      );
+    } catch (notificationError) {
+      console.error('Erreur lors de la création de la notification parrain:', notificationError);
+    }
     
     res.status(200).json({
       message: "Code de parrainage appliqué avec succès",

@@ -3,15 +3,76 @@
 const app = require("./src/app");
 const mongoose = require("mongoose");
 const http = require("http");
+const https = require("https");
+const fs = require("fs");
+const path = require("path");
 const { Server } = require("socket.io");
 const { Server: EngineIOServer } = require("engine.io");
 const cron = require("node-cron");
 const initializeUploadsDir = require("./src/utils/initializeUploadsDir");
 
+// ===== GLOBAL ERROR HANDLERS =====
+// Capture les exceptions non gérées
+process.on('uncaughtException', (error) => {
+  console.error('❌ UNCAUGHT EXCEPTION:', error);
+  console.error(error.stack);
+  // Ne pas exit - laisser le serveur continuer
+});
+
+// Capture les rejets de promise non gérés
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ UNHANDLED REJECTION:', reason);
+  // Ne pas exit - laisser le serveur continuer
+});
+
 // Initialiser les dossiers d'uploads
 initializeUploadsDir();
 
-const server = http.createServer(app);
+// ===== HTTPS/TLS SETUP =====
+let server;
+const isProduction = process.env.NODE_ENV === 'production';
+const useHttps = process.env.USE_HTTPS === 'true' || isProduction;
+
+if (useHttps) {
+  try {
+    const certPath = process.env.SSL_CERT_PATH || './ssl/velya.ca/fullchain.pem';
+    const keyPath = process.env.SSL_KEY_PATH || './ssl/velya.ca/privkey.pem';
+
+    if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+      const httpsOptions = {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      };
+      server = https.createServer(httpsOptions, app);
+      console.log('✅ HTTPS activé (certificats trouvés)');
+    } else {
+      console.warn('⚠️ Certificats SSL non trouvés, utilisant HTTP');
+      console.warn(`   - Cherché: ${certPath}`);
+      console.warn(`   - Cherché: ${keyPath}`);
+      server = http.createServer(app);
+    }
+  } catch (error) {
+    console.error('❌ Erreur chargement SSL:', error.message);
+    console.warn('⚠️ Basculement en HTTP');
+    server = http.createServer(app);
+  }
+} else {
+  server = http.createServer(app);
+}
+
+// ===== HTTP → HTTPS REDIRECTION =====
+if (useHttps && process.env.NODE_ENV === 'production') {
+  const httpServer = http.createServer((req, res) => {
+    const host = req.headers.host || 'localhost';
+    const url = 'https://' + host + req.url;
+    res.writeHead(301, { Location: url });
+    res.end();
+  });
+  
+  httpServer.listen(80, () => {
+    console.log('✅ HTTP → HTTPS redirection sur port 80');
+  });
+}
 
 // Configuration WebSocket
 if (EngineIOServer.prototype && EngineIOServer.prototype.opts) {

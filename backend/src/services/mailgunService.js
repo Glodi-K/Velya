@@ -277,6 +277,58 @@ const sendPaymentReminder = async (userEmail, reservation) => {
   return await sendMail(userEmail, 'Rappel: Paiement en attente', html);
 };
 
+// ✅ Annulation par le prestataire
+const sendProviderCancellationEmail = async (userEmail, reservation, providerName, reason) => {
+  const reasonLabels = {
+    'provider_not_available': 'Indisponibilité',
+    'provider_emergency': 'Situation d\'urgence',
+    'provider_sick': 'Maladie',
+    'other': 'Raison personnelle'
+  };
+
+  const reasonLabel = reasonLabels[reason] || 'Motif non spécifié';
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%); padding: 20px; border-radius: 8px 8px 0 0; color: white;">
+        <h2 style="margin: 0;">Mission annulée</h2>
+      </div>
+      <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px;">
+        <p>Malheureusement, <strong>${providerName}</strong> a dû annuler la mission prévue.</p>
+        
+        <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #f45c43; margin: 20px 0;">
+          <p><strong>📅 Date:</strong> ${new Date(reservation.date).toLocaleDateString('fr-FR')}</p>
+          <p><strong>🕐 Heure:</strong> ${reservation.heure || 'Non spécifiée'}</p>
+          <p><strong>🧹 Service:</strong> ${reservation.service || reservation.categorie}</p>
+          <p><strong>📍 Adresse:</strong> ${reservation.adresse}</p>
+          <p style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+            <strong>📋 Motif:</strong> ${reasonLabel}
+          </p>
+        </div>
+
+        <p style="background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 20px 0; color: #1565c0;">
+          <strong>ℹ️ Ne vous inquiétez pas !</strong> Vous pouvez demander un autre prestataire pour cette date, ou nous contacter pour toute question.
+        </p>
+
+        <p style="color: #666; font-size: 14px;">
+          Cliquez sur le bouton ci-dessous pour trouver un autre prestataire.
+        </p>
+        
+        <div style="text-align: center; margin: 20px 0;">
+          <a href="http://localhost:3000/nouvelle-mission" style="display: inline-block; padding: 12px 30px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+            Demander une nouvelle mission
+          </a>
+        </div>
+
+        <p style="color: #999; font-size: 12px; margin-top: 30px;">
+          Besoin d'aide ? Contactez notre support.
+        </p>
+      </div>
+    </div>
+  `;
+  return await sendMail(userEmail, 'Mission annulée par le prestataire', html);
+};
+
 // Exports
 module.exports = {
   send2FACodeEmail,
@@ -291,4 +343,5 @@ module.exports = {
   sendMissionCompletedEmail,
   sendPaymentReminder,
   sendPaymentReminderEmail,
+  sendProviderCancellationEmail,
 };

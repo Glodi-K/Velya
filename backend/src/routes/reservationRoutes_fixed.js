@@ -12,6 +12,7 @@ const {
   sendReservationCancellation,
   sendReservationReminder,
   sendMissionCompletedEmail,
+  sendProviderCancellationNotification,
 } = require("../services/emailService.js");
 
 const multer = require("multer");
@@ -132,12 +133,13 @@ router.get("/history/:providerId", reservationController.getProviderHistory);
 router.get("/accepted/:providerId", verifyToken, async (req, res) => {
   try {
     const { providerId } = req.params;
+    // Retourner toutes les missions acceptées par le prestataire (qui peuvent être annulées)
     const acceptedReservations = await Reservation.find({
       provider: providerId,
-      status: { $in: ["en_attente_estimation", "estime", "confirmed", "en cours"] }
+      status: { $in: ["en_attente_estimation", "estime", "en_attente_prestataire", "confirmed", "en_cours", "terminée"] },
     })
     .populate("client", "name email phone")
-    .sort({ date: 1 });
+    .sort({ date: -1 });
     
     res.json(acceptedReservations);
   } catch (error) {
@@ -167,6 +169,7 @@ router.get("/assigned/:providerId", verifyToken, async (req, res) => {
 // ✅ Annuler une réservation par le client
 router.patch("/:id/cancel", verifyToken, async (req, res) => {
   try {
+    const { reason, notes } = req.body;
     const reservation = await Reservation.findById(req.params.id)
       .populate('client', 'name email')
       .populate('provider', 'name email');
@@ -182,25 +185,106 @@ router.patch("/:id/cancel", verifyToken, async (req, res) => {
     
     const updatedReservation = await Reservation.findByIdAndUpdate(
       req.params.id,
-      { status: "annulée" },
+      { 
+        status: "annulée",
+        cancellation: {
+          reason: reason || 'other',
+          notes: notes || '',
+          cancelledBy: 'client',
+          cancelledAt: new Date()
+        }
+      },
       { new: true }
-    );
+    ).populate('client', 'name email').populate('provider', 'name email');
     
-    // Email au client
+    // ✅ Créer une notification pour le client (annulation confirmée)
+    try {
+      const Notification = require('../models/Notification');
+      const reasonText = reason ? ` (${reason})` : '';
+      const noteText = notes ? `\n\n📝 Motif supplémentaire: ${notes}` : '';
+      
+      await Notification.create({
+        userId: reservation.client._id,
+        userModel: 'User',
+        type: 'mission',
+        title: '❌ Annulation confirmée',
+        message: `Votre demande d'annulation pour ${reservation.service} du ${new Date(reservation.date).toLocaleDateString('fr-FR')} a été confirmée${reasonText}${noteText}`,
+        icon: '❌',
+        metadata: {
+          reservationId: reservation._id,
+          reason: reason,
+          notes: notes,
+          cancelledBy: 'client',
+          cancelledAt: new Date(),
+          date: reservation.date,
+          service: reservation.service
+        }
+      });
+      console.log("✅ Notification créée pour le client");
+    } catch (notificationError) {
+      console.error("❌ Erreur création notification client:", notificationError);
+    }
+    
+    // ✅ Créer une notification pour le prestataire si assigné
+    if (reservation.provider && reservation.provider._id) {
+      try {
+        const Notification = require('../models/Notification');
+        const reasonText = reason ? ` (${reason})` : '';
+        const noteText = notes ? `\n\n📝 Motif supplémentaire: ${notes}` : '';
+        const clientName = reservation.client?.name || 'Le client';
+        
+        await Notification.create({
+          userId: reservation.provider._id,
+          userModel: 'Prestataire',
+          type: 'mission',
+          title: '❌ Mission annulée par le client',
+          message: `${clientName} a annulé une mission prévue pour ${new Date(reservation.date).toLocaleDateString('fr-FR')}${reasonText}${noteText}`,
+          icon: '❌',
+          metadata: {
+            reservationId: reservation._id,
+            reason: reason,
+            notes: notes,
+            cancelledBy: 'client',
+            cancelledAt: new Date(),
+            clientName: reservation.client?.name,
+            date: reservation.date,
+            service: reservation.service
+          }
+        });
+        console.log("✅ Notification créée pour le prestataire");
+      } catch (providerNotificationError) {
+        console.error("❌ Erreur création notification prestataire:", providerNotificationError);
+      }
+    }
+    
+    // ✅ Email au client avec détails complets et mise en forme professionnelle
     if (reservation.client && reservation.client.email) {
       try {
-        await sendReservationCancellation(reservation.client.email, reservation);
-        console.log("✅ Email d'annulation envoyé au client:", reservation.client.email);
+        await sendReservationCancellation(
+          reservation.client.email,
+          reservation.client.name,
+          reservation,
+          reason,
+          notes
+        );
+        console.log("✅ Email d'annulation envoyé au client avec détails complets");
       } catch (emailError) {
         console.error("❌ Erreur lors de l'envoi de l'email au client:", emailError);
       }
     }
     
-    // Email au prestataire si assigné
+    // ✅ Email au prestataire si assigné avec détails complets et mise en forme professionnelle
     if (reservation.provider && reservation.provider.email) {
       try {
-        await sendReservationCancellation(reservation.provider.email, reservation);
-        console.log("✅ Email d'annulation envoyé au prestataire:", reservation.provider.email);
+        await sendProviderCancellationNotification(
+          reservation.provider.email,
+          reservation.provider.name,
+          reservation,
+          reservation.client?.name || 'Un client',
+          reason,
+          notes
+        );
+        console.log("✅ Email d'annulation envoyé au prestataire avec détails complets");
       } catch (emailError) {
         console.error("❌ Erreur lors de l'envoi de l'email au prestataire:", emailError);
       }
@@ -209,6 +293,101 @@ router.patch("/:id/cancel", verifyToken, async (req, res) => {
     res.json({ message: "✅ Réservation annulée avec succès", reservation: updatedReservation });
   } catch (error) {
     console.error("❌ Erreur lors de l'annulation:", error);
+    res.status(500).json({ message: "❌ Erreur serveur" });
+  }
+});
+
+// ✅ Annuler une réservation par le prestataire
+router.patch("/:id/cancel-provider", verifyToken, async (req, res) => {
+  try {
+    const { reason, notes } = req.body;
+    const reservation = await Reservation.findById(req.params.id)
+      .populate('client', 'name email')
+      .populate('provider', 'name email');
+    if (!reservation) return res.status(404).json({ message: "❌ Réservation non trouvée" });
+    
+    // Vérifier que c'est bien le prestataire qui annule
+    if (!reservation.provider || req.user.id !== reservation.provider._id.toString()) {
+      return res.status(403).json({ message: "⛔ Accès interdit" });
+    }
+    
+    // Vérifier que la mission n'est pas déjà terminée
+    if (reservation.status === "terminée") {
+      return res.status(400).json({ message: "❌ Impossible d'annuler une mission terminée" });
+    }
+    
+    // Vérifier que la mission a au moins été acceptée
+    const cancelableStatuses = ['confirmed', 'en_attente_estimation', 'estime', 'en_attente_prestataire', 'en cours'];
+    if (!cancelableStatuses.includes(reservation.status)) {
+      return res.status(400).json({ message: "❌ Seules les missions acceptées ou en cours peuvent être annulées" });
+    }
+    
+    const updatedReservation = await Reservation.findByIdAndUpdate(
+      req.params.id,
+      { 
+        status: "annulée",
+        cancellation: {
+          reason: reason || 'other',
+          notes: notes || '',
+          cancelledBy: 'provider',
+          cancelledAt: new Date()
+        }
+      },
+      { new: true }
+    ).populate('client', 'name email').populate('provider', 'name email');
+    
+    // ✅ Créer une notification pour le client avec détails d'annulation
+    try {
+      const Notification = require('../models/Notification');
+      const reasonText = reason ? ` (${reason})` : '';
+      const noteText = notes ? `\n\n📝 Motif supplémentaire: ${notes}` : '';
+      const providerName = reservation.provider?.name || 'Le prestataire';
+      
+      await Notification.create({
+        userId: reservation.client._id,
+        userModel: 'User',
+        type: 'mission',
+        title: '❌ Mission annulée par le prestataire',
+        message: `${providerName} a annulé la mission prévue pour ${new Date(reservation.date).toLocaleDateString('fr-FR')}${reasonText}${noteText}`,
+        icon: '❌',
+        metadata: {
+          reservationId: reservation._id,
+          reason: reason,
+          notes: notes,
+          cancelledBy: 'provider',
+          cancelledAt: new Date(),
+          providerName: reservation.provider?.name,
+          date: reservation.date,
+          service: reservation.service
+        }
+      });
+      console.log("✅ Notification créée pour le client");
+    } catch (notificationError) {
+      console.error("❌ Erreur création notification client:", notificationError);
+    }
+    
+    // ✅ Email au client avec détails complets et mise en forme professionnelle
+    if (reservation.client && reservation.client.email) {
+      try {
+        await sendReservationCancellation(
+          reservation.client.email,
+          reservation.client.name,
+          reservation,
+          reason,
+          notes
+        );
+        console.log("✅ Email d'annulation envoyé au client avec détails");
+      } catch (emailError) {
+        console.error("❌ Erreur lors de l'envoi de l'email au client:", emailError);
+      }
+    }
+    
+    res.json({ 
+      message: "✅ Mission annulée avec succès", 
+      reservation: updatedReservation
+    });
+  } catch (error) {
+    console.error("❌ Erreur lors de l'annulation par le prestataire:", error);
     res.status(500).json({ message: "❌ Erreur serveur" });
   }
 });
@@ -237,6 +416,7 @@ router.patch("/:id/complete", verifyToken, async (req, res) => {
         const providerName = reservation.provider ? reservation.provider.name : "Votre prestataire";
         await sendMissionCompletedEmail(
           reservation.client.email,
+          reservation.client.name,
           reservation,
           providerName
         );
@@ -284,7 +464,7 @@ router.delete("/:id", verifyToken, async (req, res) => {
     }
 
     try {
-      await sendReservationCancellation(req.user.email, reservation);
+      await sendReservationCancellation(req.user.email, req.user.name, reservation, "Annulation par le client", "");
       console.log("📩 Email d'annulation envoyé !");
     } catch (emailError) {
       console.error("❌ Erreur email :", emailError);
@@ -356,10 +536,12 @@ router.post("/:id/send-payment-reminder", verifyToken, async (req, res) => {
     // Envoyer l'email de rappel au client
     if (reservation.client && reservation.client.email) {
       const emailService = require('../services/emailService');
+      const providerName = reservation.provider ? reservation.provider.name : "Votre prestataire";
       await emailService.sendPaymentReminderEmail(
         reservation.client.email,
+        reservation.client.name,
         reservation,
-        reservation.provider.name
+        providerName
       );
       console.log("✅ Rappel de paiement envoyé au client:", reservation.client.email);
     }
@@ -391,10 +573,10 @@ cron.schedule("0 0 * * *", async () => {
     for (const reservation of reservations) {
       try {
         if (reservation.client?.email) {
-          await sendReservationReminder(reservation.client.email, reservation);
+          await sendReservationReminder(reservation.client.email, reservation.client.name, reservation);
         }
         if (reservation.provider?.email) {
-          await sendReservationReminder(reservation.provider.email, reservation);
+          await sendReservationReminder(reservation.provider.email, reservation.provider.name, reservation);
         }
       } catch (emailError) {
         console.error(`❌ Erreur envoi rappel pour réservation ${reservation._id}:`, emailError);

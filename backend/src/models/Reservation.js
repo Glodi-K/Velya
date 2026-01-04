@@ -155,6 +155,35 @@ const reservationSchema = new mongoose.Schema({
     default: false,
   },
 
+  // ✅ Motifs d'annulation
+  cancellation: {
+    reason: {
+      type: String,
+      enum: [
+        'client_change_mind',
+        'scheduling_conflict',
+        'found_alternative',
+        'too_expensive',
+        'provider_not_available',
+        'provider_emergency',
+        'provider_sick',
+        'weather',
+        'other'
+      ],
+    },
+    notes: {
+      type: String,
+      maxlength: 500,
+    },
+    cancelledBy: {
+      type: String,
+      enum: ['client', 'provider'],
+    },
+    cancelledAt: {
+      type: Date,
+    },
+  },
+
   saison: {
     type: String,
     enum: ['hiver', 'printemps', 'ete', 'automne'],

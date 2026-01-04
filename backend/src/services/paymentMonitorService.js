@@ -1,6 +1,7 @@
 const Reservation = require('../models/Reservation');
 const PaymentLog = require('../models/PaymentLog');
 const PrestataireSimple = require('../models/PrestataireSimple');
+const { calculateCommissionInEuros } = require('../utils/commissionCalculator');
 
 class PaymentMonitorService {
   static async autoFixPayments() {
@@ -24,8 +25,7 @@ class PaymentMonitorService {
 
   static async processRetroactivePayment(reservation) {
     const totalAmount = reservation.prixTotal;
-    const applicationFee = Math.round(totalAmount * 0.20 * 100) / 100; // 20% pour l'admin (Tarrification 3)
-    const providerAmount = Math.round((totalAmount - applicationFee) * 100) / 100; // 80% pour le prestataire
+    const { commission: applicationFee, providerAmount } = calculateCommissionInEuros(totalAmount);
     const paymentId = `auto_fix_${Date.now()}_${reservation._id}`;
 
     // Mettre à jour la réservation

@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Reservation = require('../src/models/Reservation');
 const PaymentLog = require('../src/models/PaymentLog');
 const PrestataireSimple = require('../src/models/PrestataireSimple');
+const { calculateCommissionInEuros } = require('../src/utils/commissionCalculator');
 require('dotenv').config();
 
 async function finalizePayment() {
@@ -22,7 +23,7 @@ async function finalizePayment() {
     });
 
     // Calculer le montant prestataire (80% du total - Tarrification 3)
-    const providerAmount = Math.round((reservation.prixTotal * 0.80) * 100) / 100;
+    const { commission: applicationFee, providerAmount } = calculateCommissionInEuros(reservation.prixTotal);
     console.log('💰 Montant prestataire:', providerAmount + '€');
 
     // Mettre à jour les gains du prestataire
@@ -50,7 +51,7 @@ async function finalizePayment() {
       provider: providerId,
       paymentIntentId: reservation.paymentId,
       totalAmount: reservation.prixTotal,
-      applicationFee: Math.round((reservation.prixTotal * 0.20) * 100) / 100, // 20% commission pour l'admin (Tarrification 3)
+      applicationFee: applicationFee,
       providerAmount: providerAmount,
       currency: 'eur',
       status: 'completed',
