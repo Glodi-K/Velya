@@ -10,18 +10,29 @@ const compression = require("compression");
 
 // ===== SENTRY - Initialiser AVANT tout le reste =====
 const Sentry = require("@sentry/node");
-const { nodeProfilingIntegration } = require("@sentry/profiling-node");
+
+let nodeProfilingIntegration = null;
+try {
+  nodeProfilingIntegration = require("@sentry/profiling-node").nodeProfilingIntegration;
+} catch (err) {
+  console.warn('⚠️ @sentry/profiling-node non disponible, profiling désactivé');
+}
 
 if (process.env.SENTRY_DSN) {
+  const integrations = [
+    new Sentry.Integrations.Http({ tracing: true }),
+    new Sentry.Integrations.OnUncaughtException(),
+    new Sentry.Integrations.OnUnhandledRejection(),
+  ];
+  
+  if (nodeProfilingIntegration) {
+    integrations.push(nodeProfilingIntegration());
+  }
+  
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'development',
-    integrations: [
-      new Sentry.Integrations.Http({ tracing: true }),
-      new Sentry.Integrations.OnUncaughtException(),
-      new Sentry.Integrations.OnUnhandledRejection(),
-      nodeProfilingIntegration(),
-    ],
+    integrations,
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
     profilesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
   });
